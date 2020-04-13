@@ -4,31 +4,33 @@
 
 #include <pcl/io/pcd_io.h>
 
-int main (int argc, char *argv[])
-
+int main(int argc, char *argv[])
 {
+	std::cout << "max num threads: " << omp_get_max_threads() << std::endl;
+
 	float edgelength = atof(argv[1]);
-	int start_argc = 2 ;
+	int start_argc = 2;
 
 	pcl::PCDReader reader;
 	pcl::PCDWriter writer;
-	pcl::PointCloud<PointTreeseg>::Ptr original(new pcl::PointCloud<PointTreeseg>);
-	pcl::PointCloud<PointTreeseg>::Ptr filtered(new pcl::PointCloud<PointTreeseg>);
-	std::stringstream ss;
 
-	for(int i=2;i<argc;i++)
+#pragma omp parallel for
+	for (int i = 2; i < argc; i++)
 	{
-		std::cout << "Reading: " << argv[i] ;
-		reader.read(argv[i],*original);
-		std::cout << "\t size:  " << original->points.size() << std::endl;
-
+		std::stringstream ss;
+		pcl::PointCloud<PointTreeseg>::Ptr original(new pcl::PointCloud<PointTreeseg>);
+		reader.read(argv[i], *original);
 		std::vector<std::string> id = getFileID(argv[i]);
-		downsample_byOctTree(original,edgelength,filtered);
+		pcl::PointCloud<PointTreeseg>::Ptr filtered(new pcl::PointCloud<PointTreeseg>);
+		downsample_byOctTree(original, edgelength, filtered);
 		ss.str("");
-		ss << id[0] << ".tile.downsample."  << id[1] << ".pcd"; 
-		writer.write(ss.str(),*filtered,true);
-		original->clear();	
-		filtered->clear();
+		ss << id[0] << ".tile.downsample." << id[1] << ".pcd";
+		writer.write(ss.str(), *filtered, true);
+
+#pragma omp critical
+		{
+			std::cout << "Done With: " << argv[i] << "\t size:  " << original->points.size() << std::endl;
+		}
 	}
 	return 0;
 }

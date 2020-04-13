@@ -4,17 +4,19 @@
 
 #include <pcl/io/pcd_io.h>
 #include <pcl/common/common.h>
-#include <algorithm>    // std::max
+#include <algorithm> // std::max
+
+#include <omp.h>
 
 const std::string reset("\033[0m");
 const std::string red("\033[0;31m");
 const std::string green("\033[0;32m");
 const std::string cyan("\033[0;96m");
 
-
 int main(int argc, char *argv[])
 {
 
+	std::cout << "max num threads: " << omp_get_max_threads() << std::endl;
 	float smoothness = atof(argv[1]);
 
 	float dmin = atof(argv[2]);
@@ -22,9 +24,12 @@ int main(int argc, char *argv[])
 
 	float lmin = atof(argv[4]) * 0.75; //assuming 3m slice == 3/4 slice h
 
-	char* coordfileneame = argv[5];
-	char* slicefileneame = argv[6];
+	float stepcovmax =  atof(argv[5]);//0.2;
+	float radratiomin =  atof(argv[6]);//0.8;
+	float anglemax  =  atof(argv[7]);//35:
 
+	char *coordfileneame = argv[8];
+	char *slicefileneame = argv[9];
 
 	std::ifstream coordfile;
 	std::cout << "coordfile: " << coordfileneame << std::endl;
@@ -59,8 +64,9 @@ int main(int argc, char *argv[])
 	pcl::PointCloud<PointTreeseg>::Ptr slice(new pcl::PointCloud<PointTreeseg>);
 	reader.read(slicefileneame, *slice);
 	std::cout << "complete" << std::endl;
-	//
+
 	std::cout << "Cluster extraction: " << std::flush;
+
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> clusters;
 	int nnearest = 18;
 	int nmin = 100;
@@ -75,12 +81,16 @@ int main(int argc, char *argv[])
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> regions;
 	nnearest = 9;
 	nmin = 100;
+#pragma omp parallel for
 	for (int i = 0; i < clusters.size(); i++)
 	{
 		std::vector<pcl::PointCloud<PointTreeseg>::Ptr> tmpregions;
 		regionSegmentation(clusters[i], nnearest, nmin, smoothness, tmpregions);
-		for (int j = 0; j < tmpregions.size(); j++)
-			regions.push_back(tmpregions[j]);
+#pragma omp critical
+		{
+			for (int j = 0; j < tmpregions.size(); j++)
+				regions.push_back(tmpregions[j]);
+		}
 	}
 	ss.str("");
 	ss << id[0] << ".intermediate.slice.clusters.regions.pcd";
@@ -91,19 +101,12 @@ int main(int argc, char *argv[])
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> cyls;
 	nnearest = 60;
 
-	float stepcovmax = 0.1;
-	float radratiomin = 0.8;
-	float maxangle = 0.3;
-
 	int cylnum = 0;
+
+#pragma omp parallel for
 	for (int i = 0; i < regions.size(); i++)
 	{
-		std::cout << "Region : " << i << "\t of : " << regions.size() << std::flush;
-
 		cylinder cyl;
-
-		// if(i%10 ==0)
-		// {
 		fitCylinder(regions[i], nnearest, true, true, cyl);
 
 		if (cyl.ismodel == true)
@@ -111,8 +114,10 @@ int main(int argc, char *argv[])
 			if (cyl.rad * 2 >= dmin && cyl.rad * 2 <= dmax && cyl.len >= lmin)
 			{
 
+				std::cout << "Region : " << i << "\t of : " << regions.size() << std::flush;
+
 				std::cout << "  cov: " << cyl.stepcov << std::flush;
-				std::cout << "  max_dir: " << std::max(abs(cyl.dx),abs(cyl.dy)) << std::flush;
+				std::cout << "  max_dir: " << std::max(abs(cyl.dx), abs(cyl.dy)) << std::flush;
 
 				if (cyl.stepcov <= stepcovmax)
 				{
@@ -120,16 +125,13 @@ int main(int argc, char *argv[])
 					{
 						if ((cyl.x >= xmin && cyl.x <= xmax) && (cyl.y >= ymin && cyl.y <= ymax))
 						{
-							if ((abs(cyl.dx) < maxangle) && (abs(cyl.dy) < maxangle) )
-							{
-								cyls.push_back(cyl.inliers);
-								std::cout << green << "  Added Cylinder : " << cylnum << reset <<std::flush;
-								cylnum++;
 
-							}
-							else
+#pragma omp critical
 							{
-								std::cout << "  Bad angle" << std::flush;
+
+								cyls.push_back(cyl.inliers);
+								std::cout << green << "  Added Cylinder : " << cylnum << reset << std::flush;
+								cylnum++;
 							}
 						}
 						else
@@ -146,10 +148,10 @@ int main(int argc, char *argv[])
 				{
 					std::cout << "  cov too large," << std::flush;
 				}
+				std::cout << std::endl;
+
 			}
 		}
-		// }
-		std::cout << std::endl;
 	}
 
 	ss.str("");
@@ -158,7 +160,7 @@ int main(int argc, char *argv[])
 	std::cout << ss.str() << " | " << cyls.size() << std::endl;
 	//
 	std::cout << "Principal component trimming: " << std::flush;
-	float anglemax = 35;
+
 	std::vector<int> idx;
 	for (int j = 0; j < cyls.size(); j++)
 	{

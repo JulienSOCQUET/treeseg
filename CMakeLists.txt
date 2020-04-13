@@ -18,6 +18,7 @@ set(CMAKE_C_COMPILER gcc CACHE STRING "gcc/9.0.2" FORCE)
 set(CMAKE_CXX_COMPILER g++ CACHE STRING "g++/9.0.2" FORCE)
 
 
+set(CMAKE_CXX_FLAGS "-fopenmp")
 
 include_directories(${PCL_INCLUDE_DIRS} ${ARMADILLO_INCLUDE_DIRS} ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/riegl)
 link_directories(${CMAKE_SOURCE_DIR}/lib ${CMAKE_SOURCE_DIR}/lib/riegl)
@@ -55,6 +56,10 @@ target_link_libraries(getdemslice treeseg ${PCL_LIBRARIES})
 
 add_executable(findstems ${CMAKE_SOURCE_DIR}/src/findstems.cpp)
 target_link_libraries(findstems treeseg ${PCL_LIBRARIES})
+
+
+
+
 
 add_executable(segmentstem ${CMAKE_SOURCE_DIR}/src/segmentstem.cpp)
 target_link_libraries(segmentstem treeseg ${PCL_LIBRARIES})
