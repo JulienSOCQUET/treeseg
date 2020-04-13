@@ -4,14 +4,12 @@
 
 #include <pcl/io/pcd_io.h>
 #include <pcl/common/common.h>
-#include <algorithm>    // std::max
-
+#include <algorithm> // std::max
 
 const std::string reset("\033[0m");
 const std::string red("\033[0;31m");
 const std::string green("\033[0;32m");
 const std::string cyan("\033[0;96m");
-
 
 int main(int argc, char *argv[])
 {
@@ -106,7 +104,7 @@ int main(int argc, char *argv[])
 			{
 
 				std::cout << "  cov: " << cyl.stepcov << std::flush;
-				std::cout << "  max_dir: " << std::max(abs(cyl.dx),abs(cyl.dy)) << std::flush;
+				std::cout << "  max_dir: " << std::max(abs(cyl.dx), abs(cyl.dy)) << std::flush;
 
 				if (cyl.stepcov <= stepcovmax)
 				{
@@ -114,12 +112,11 @@ int main(int argc, char *argv[])
 					{
 						if ((cyl.x >= xmin && cyl.x <= xmax) && (cyl.y >= ymin && cyl.y <= ymax))
 						{
-							if ((abs(cyl.dx) < maxangle) && (abs(cyl.dy) < maxangle) )
+							if ((abs(cyl.dx) < maxangle) && (abs(cyl.dy) < maxangle))
 							{
 								cyls.push_back(cyl.inliers);
-								std::cout << green << "  Added Cylinder : " << cylnum << reset <<std::flush;
+								std::cout << green << "  Added Cylinder : " << cylnum << reset << std::flush;
 								cylnum++;
-
 							}
 							else
 							{
