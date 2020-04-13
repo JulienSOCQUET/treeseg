@@ -7,6 +7,8 @@
 #include <dirent.h>
 
 #include <riegl/scanlib.hpp>
+// #include <riegl/scanifc.h>
+
 
 struct pcloud 
 {
@@ -58,11 +60,13 @@ int main(int argc,char** argv)
 	cfile.open(argv[2]);
 	float coordfile[4];
 	int no_count = 0;
+	std::cout << top_dir << std::endl;
 	if(cfile.is_open())
 	{
 		while(!cfile.eof())
 		{
 			cfile >> coordfile[no_count];
+			// std::cout << coordfile[no_count] << std::endl;
 			no_count++;
 		}
 	}
@@ -78,8 +82,11 @@ int main(int argc,char** argv)
 	{
 		for(float y=plot_ymin;y<plot_ymax;y+=tile_length) tile_count++;
 	}
+
+	std::cout << plot_xmin << " " << plot_xmax << " " << plot_ymin << " " << plot_ymax << std::endl;
+
 	float tile_coords[tile_count][4];
-	unsigned long int tile_pointcount[tile_count] = {0};
+    unsigned long int tile_pointcount[tile_count] = { 0 };
 	int c = 0;
 	for(float x=plot_xmin;x<plot_xmax;x+=sqrt(tile_area))
 	{
@@ -107,106 +114,140 @@ int main(int argc,char** argv)
 		ss.str("");
 		ss << fname << ".tile." << j << ".pcd";
 		pcdnames[j] = ss.str();
+		// std::cout <<ss.str() <<  std::endl;
+
+
 	}
+
+
+
 	std::vector<std::string> positions;
 	DIR *tdir = NULL;
-	tdir = opendir (top_dir.c_str());
+	const char *subfolder = "SCANS/";
+	tdir = opendir ((top_dir+subfolder).c_str());
 	struct dirent *tent = NULL;
 	while(tent = readdir(tdir)) positions.push_back(tent->d_name);
 	closedir(tdir);	
 	for(int k=0;k<positions.size();k++)
 	{
+		// std::cout <<positions[k] <<  std::endl;
+
 		if(positions[k][0] == 'S' && positions[k][4] == 'P')
 		{
 			ss.str("");
-			ss << top_dir << positions[k];
+			ss << top_dir << subfolder << positions[k];
+
 			std::string position;
 			const char* c_position;
-			position = ss.str();
+			position = ss.str()+"/SINGLESCANS/";
+
+			if(position[position.length()-1] != '/') position = position + "/";
+
 			c_position = position.c_str();
 			std::vector<std::string> position_contents;
 			DIR *pdir = NULL;
+			// std::cout <<c_position <<  std::endl;
+
 			pdir = opendir(c_position);
 			struct dirent *pent = NULL;
 			while(pent = readdir(pdir)) position_contents.push_back(pent->d_name);
 			closedir(pdir);
 			std::string rxpname;
+			std::cout <<"opening  " << positions[k] << std::endl;
+
 			for(int l=0;l<position_contents.size();l++)
 			{
+				// std::cout << position_contents[l] <<  std::endl;
+
 				if(position_contents[l][14] == 'r' && position_contents[l][15] == 'x' && position_contents[l][16] == 'p' && position_contents[l].length() == 17)
 				//if(position_contents[l][14] == 'm' && position_contents[l][15] == 'o' && position_contents[l][16] == 'n' && position_contents[l].length() == 21)
 				{
 					ss.str("");
-					ss << top_dir << positions[k] << "/" << position_contents[l];
+					ss << top_dir << subfolder << positions[k] << "/SINGLESCANS/" << position_contents[l];
 					rxpname = ss.str();
-				}
-			}
-			ss.str("");
-			ss << top_dir << "matrix/" << positions[k][7] << positions[k][8] << positions[k][9] <<".dat";
-			std::string matrixname = ss.str();
-			std::cout << rxpname << " " << " " << matrixname << std::endl;
-			pcloud pc;
-			try
-			{
+					std::cout <<"found: " << position_contents[l] <<  std::endl;
 
-				std::shared_ptr<scanlib::basic_rconnection> rc;
-				rc = scanlib::basic_rconnection::create(rxpname);
-				rc->open();
-				scanlib::decoder_rxpmarker dec(rc);
-				importer imp(pc);
-				scanlib::buffer buf;
-				for(dec.get(buf);!dec.eoi();dec.get(buf))
-				{
-					imp.dispatch(buf.begin(), buf.end());
-				}
-				rc->close();
-			}
-			catch(...)
-			{
-				continue;
-			}
-			ss.str("");
-			if(positions[k][7] == '0' && positions[k][8] == '0') ss << positions[k][9];
-			else if(positions[k][7] == '0') ss << positions[k][8] << positions[k][9];
-			else ss << positions[k][7] << positions[k][8] << positions[k][9];
-			std::string scan_number = ss.str();
-			pc.scan_number = (uint16_t)atoi(scan_number.c_str());
-			std::ifstream mfile;
-			mfile.open(matrixname);
-			int no_count = 0;
-			if(mfile.is_open())
-			{
-				while(!mfile.eof())
-				{
-					mfile >> pc.matrix[no_count];
-					no_count++;
-				}
-			}
-			for(int m=0;m<pc.x.size();m++)
-			{
-				float X = ((pc.x[m]*pc.matrix[0])+(pc.y[m]*pc.matrix[1])+(pc.z[m]*pc.matrix[2]))+pc.matrix[3];
-				float Y = ((pc.x[m]*pc.matrix[4])+(pc.y[m]*pc.matrix[5])+(pc.z[m]*pc.matrix[6]))+pc.matrix[7];
-				float Z = ((pc.x[m]*pc.matrix[8])+(pc.y[m]*pc.matrix[9])+(pc.z[m]*pc.matrix[10]))+pc.matrix[11];
-				for(int n=0;n<tile_count;n++)
-				{
-					if(X >= tile_coords[n][0] && X < tile_coords[n][1])
+
+
+					ss.str("");
+					ss << top_dir << "Matrix/ScanPos" << positions[k][7] << positions[k][8] << positions[k][9] <<".DAT";
+					std::string matrixname = ss.str();
+					std::cout << rxpname << " " << " " << matrixname << std::endl;
+					pcloud pc;
+					try
 					{
-						if(Y >= tile_coords[n][2] && Y < tile_coords[n][3])
+
+						std::shared_ptr<scanlib::basic_rconnection> rc;
+						rc = scanlib::basic_rconnection::create(rxpname);
+						rc->open();
+						scanlib::decoder_rxpmarker dec(rc);
+						importer imp(pc);
+						scanlib::buffer buf;
+						for(dec.get(buf);!dec.eoi();dec.get(buf))
 						{
-							if(pc.deviation[m] <= deviation_max)
+							imp.dispatch(buf.begin(), buf.end());
+						}
+						rc->close();
+					}
+					catch(...)
+					{
+						std::cout <<"scanlib error"  << std::endl;
+
+						continue;
+					}
+					ss.str("");
+					if(positions[k][7] == '0' && positions[k][8] == '0') ss << positions[k][9];
+					else if(positions[k][7] == '0') ss << positions[k][8] << positions[k][9];
+					else ss << positions[k][7] << positions[k][8] << positions[k][9];
+					std::string scan_number = ss.str();
+					pc.scan_number = (uint16_t)atoi(scan_number.c_str());
+					std::ifstream mfile;
+					mfile.open(matrixname);
+					int no_count = 0;
+					if(mfile.is_open())
+					{
+						while(!mfile.eof())
+						{
+							mfile >> pc.matrix[no_count];
+							no_count++;
+						}
+					}
+					std::cout << "Num Points:" <<pc.x.size() << std::endl;
+					for(int m=0;m<pc.x.size();m++)
+					{
+						// std::cout << pc.x[m]  << "  " << pc.matrix[0] << "  "<< (pc.x[m]*pc.matrix[0]) << std::endl;
+						float X = ((pc.x[m]*pc.matrix[0])+(pc.y[m]*pc.matrix[1])+(pc.z[m]*pc.matrix[2]))+pc.matrix[3];
+						float Y = ((pc.x[m]*pc.matrix[4])+(pc.y[m]*pc.matrix[5])+(pc.z[m]*pc.matrix[6]))+pc.matrix[7];
+						float Z = ((pc.x[m]*pc.matrix[8])+(pc.y[m]*pc.matrix[9])+(pc.z[m]*pc.matrix[10]))+pc.matrix[11];
+						for(int n=0;n<tile_count;n++)
+						{
+							// std::cout << X << tile_coords[n][0] << tile_coords[n][1] << std::endl;
+							// std::cout << Y << tile_coords[n][2] << tile_coords[n][3] << std::endl;
+
+							if(X >= tile_coords[n][0] && X < tile_coords[n][1])
 							{
-								xyzfiles[n].write(reinterpret_cast<const char*>(&X),sizeof(X));
-								xyzfiles[n].write(reinterpret_cast<const char*>(&Y),sizeof(Y));
-								xyzfiles[n].write(reinterpret_cast<const char*>(&Z),sizeof(Z));
-								if(basic == false)
-								{
-									xyzfiles[n].write(reinterpret_cast<const char*>(&pc.range[m]),sizeof(pc.range[m]));
-									xyzfiles[n].write(reinterpret_cast<const char*>(&pc.reflectance[m]),sizeof(pc.reflectance[m]));
-									xyzfiles[n].write(reinterpret_cast<const char*>(&pc.deviation[m]),sizeof(pc.deviation[m]));
-									xyzfiles[n].write(reinterpret_cast<const char*>(&pc.return_number[m]),sizeof(pc.return_number[m]));
-									xyzfiles[n].write(reinterpret_cast<const char*>(&pc.scan_number),sizeof(pc.scan_number));
+								if(Y >= tile_coords[n][2] && Y < tile_coords[n][3])
+								{	
+									if(pc.deviation[m] <= deviation_max)
+									{
+										// std::cout << "validpoint" << std::endl;
+									
+										xyzfiles[n].write(reinterpret_cast<const char*>(&X),sizeof(X));
+										xyzfiles[n].write(reinterpret_cast<const char*>(&Y),sizeof(Y));
+										xyzfiles[n].write(reinterpret_cast<const char*>(&Z),sizeof(Z));
+										if(basic == false)
+										{
+											xyzfiles[n].write(reinterpret_cast<const char*>(&pc.range[m]),sizeof(pc.range[m]));
+											xyzfiles[n].write(reinterpret_cast<const char*>(&pc.reflectance[m]),sizeof(pc.reflectance[m]));
+											xyzfiles[n].write(reinterpret_cast<const char*>(&pc.deviation[m]),sizeof(pc.deviation[m]));
+											xyzfiles[n].write(reinterpret_cast<const char*>(&pc.return_number[m]),sizeof(pc.return_number[m]));
+											xyzfiles[n].write(reinterpret_cast<const char*>(&pc.scan_number),sizeof(pc.scan_number));
+										}
+										
+										tile_pointcount[n] += 1;
+										
+									}
 								}
-								tile_pointcount[n] += 1;
 							}
 						}
 					}
