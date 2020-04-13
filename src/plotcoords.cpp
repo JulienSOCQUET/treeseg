@@ -6,12 +6,18 @@
 #include <fstream>
 #include <algorithm>
 
+
+
 #include <dirent.h>
 
 int main(int argc,char** argv)
 {
+	// std::cout << "startring" << std::endl;
+
 	std::string matrix_dir = argv[1];
 	if(matrix_dir[matrix_dir.length()-1] != '/') matrix_dir = matrix_dir + '/';
+	// std::cout << matrix_dir << std::endl;
+
 	std::vector<std::string> fnames;
 	char buf[PATH_MAX + 1];
 	DIR *dir = NULL;
@@ -20,12 +26,15 @@ int main(int argc,char** argv)
 	while(drnt = readdir(dir)) fnames.push_back(drnt->d_name);
 	closedir(dir);
 	std::vector<float> x,y;
+
+	// std::cout << dir << std::endl;
+
 	for(int i=0;i<fnames.size();i++)
 	{
 		std::stringstream ss;
 		ss << matrix_dir << fnames[i];
 		std::string fname = ss.str();
-		if(fname[fname.length()-4] == '.' && fname[fname.length()-3] == 'd')
+		if(fname[fname.length()-4] == '.' && fname[fname.length()-3] == 'D')
 		{
 			float matrix[16];
 			std::fstream mfile;
