@@ -5,7 +5,7 @@
 #include <pcl/io/pcd_io.h>
 
 int main (int argc, char *argv[])
-{
+
 {
 	float edgelength = atof(argv[1]);
 	int start_argc = 2 ;
