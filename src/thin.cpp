@@ -16,7 +16,7 @@ int main (int argc, char *argv[])
 	pcl::PointCloud<PointTreeseg>::Ptr thinned(new pcl::PointCloud<PointTreeseg>);
 	std::stringstream ss;
 
-	for(int start_argc=2;i<argc;i++)
+	for(int i=start_argc;i<argc;i++)
 	{
 		reader.read(argv[i],*original);
 		downsample(original,edgelength,downsampled);
