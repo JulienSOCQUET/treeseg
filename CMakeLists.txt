@@ -1,8 +1,23 @@
-cmake_minimum_required(VERSION 3.10)
+
+cmake_minimum_required(VERSION 3.17)
+set(CMAKE_TOOLCHAIN_FILE "/home/3/jc350300/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+
 project(treeseg)
+
+
+SET(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/home/3/jc350300/armadillo-9.860.1/")
+
+find_package(hdf5 REQUIRED)
 
 find_package(PCL 1.9 REQUIRED)
 find_package(Armadillo 9.6 REQUIRED)
+#find_package(Armadillo 9.6 REQUIRED PATHS "/home/3/jc350300/armadillo-9.860.1/libarmadillo.so.9.860.1")
+
+
+set(CMAKE_C_COMPILER gcc CACHE STRING "gcc/9.0.2" FORCE)
+set(CMAKE_CXX_COMPILER g++ CACHE STRING "g++/9.0.2" FORCE)
+
+
 
 include_directories(${PCL_INCLUDE_DIRS} ${ARMADILLO_INCLUDE_DIRS} ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/include/riegl)
 link_directories(${CMAKE_SOURCE_DIR}/lib ${CMAKE_SOURCE_DIR}/lib/riegl)
@@ -22,8 +37,6 @@ endif()
 add_library(treeseg SHARED ${CMAKE_SOURCE_DIR}/src/treeseg.cpp)
 target_link_libraries(treeseg ${PCL_LIBRARIES})
 
-add_library(leafsep SHARED ${CMAKE_SOURCE_DIR}/src/leafsep.cpp)
-target_link_libraries(leafsep treeseg ${PCL_LIBRARIES} ${ARMADILLO_LIBRARIES})
 
 add_executable(plotcoords ${CMAKE_SOURCE_DIR}/src/plotcoords.cpp)
 target_link_libraries(plotcoords)
@@ -49,14 +62,20 @@ target_link_libraries(segmentstem treeseg ${PCL_LIBRARIES})
 add_executable(getcrownvolume ${CMAKE_SOURCE_DIR}/src/getcrownvolume.cpp)
 target_link_libraries(getcrownvolume treeseg ${PCL_LIBRARIES})
 
-add_executable(segmentcrown ${CMAKE_SOURCE_DIR}/src/segmentcrown.cpp)
-target_link_libraries(segmentcrown treeseg leafsep ${PCL_LIBRARIES})
+
 
 add_executable(xyz2pcd ${CMAKE_SOURCE_DIR}/src/xyz2pcd.cpp)
 target_link_libraries(xyz2pcd treeseg ${PCL_LIBRARIES})
 
 add_executable(pcd2xyz ${CMAKE_SOURCE_DIR}/src/pcd2xyz.cpp)
 target_link_libraries(pcd2xyz treeseg ${PCL_LIBRARIES})
+
+
+add_library(leafsep SHARED ${CMAKE_SOURCE_DIR}/src/leafsep.cpp)
+target_link_libraries(leafsep treeseg ${PCL_LIBRARIES} ${ARMADILLO_LIBRARIES})
+
+add_executable(segmentcrown ${CMAKE_SOURCE_DIR}/src/segmentcrown.cpp)
+target_link_libraries(segmentcrown treeseg leafsep ${PCL_LIBRARIES})
 
 add_executable(sepwoodleaf ${CMAKE_SOURCE_DIR}/src/sepwoodleaf.cpp)
 target_link_libraries(sepwoodleaf treeseg leafsep ${PCL_LIBRARIES})
