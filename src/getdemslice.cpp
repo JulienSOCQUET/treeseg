@@ -11,15 +11,21 @@ int main (int argc, char *argv[])
 	float zmax = atof(argv[3]);
 	pcl::PointCloud<PointTreeseg>::Ptr plotcloud(new pcl::PointCloud<PointTreeseg>);
 	pcl::PCDWriter writer;
+	std::cout << "Reading plotcloud..." << std::endl;
 	readTiles(argc,argv,plotcloud);
+	std::cout << "Finished reading plotcloud..." << std::endl;
+
 	std::vector<std::string> id = getFileID(argv[4]);
 	std::stringstream ss;
 	ss.str("");
 	ss << id[0] << ".slice.pcd";
 	std::vector<std::vector<float>> dem;
 	pcl::PointCloud<PointTreeseg>::Ptr slice(new pcl::PointCloud<PointTreeseg>);
+	std::cout << "Running getDemAndSlice..." << std::endl;
+
 	dem = getDemAndSlice(plotcloud,resolution,zmin,zmax,slice);
-	for(int j=0;j<dem.size();j++) std::cout << dem[j][0] << " " << dem[j][1] << " " << dem[j][2] << std::endl;
+	// for(int j=0;j<dem.size();j++) std::cout << dem[j][0] << " " << dem[j][1] << " " << dem[j][2] << std::endl;
+	std::cout << "Writing slice..." << std::endl;
 	writer.write(ss.str(),*slice,true);
 	return 0;
 }
