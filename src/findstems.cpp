@@ -4,20 +4,32 @@
 
 #include <pcl/io/pcd_io.h>
 #include <pcl/common/common.h>
-#include <algorithm> // std::max
+#include <algorithm>    // std::max
 
 const std::string reset("\033[0m");
 const std::string red("\033[0;31m");
 const std::string green("\033[0;32m");
 const std::string cyan("\033[0;96m");
 
+
 int main(int argc, char *argv[])
 {
 
-	std::ifstream coordfile;
-	std::cout << "coordfile: " << argv[5] << std::endl;
+	float smoothness = atof(argv[1]);
 
-	coordfile.open(argv[5]);
+	float dmin = atof(argv[2]);
+	float dmax = atof(argv[3]);
+
+	float lmin = atof(argv[4]) * 0.75; //assuming 3m slice == 3/4 slice h
+
+	char* coordfileneame = argv[5];
+	char* slicefileneame = argv[6];
+
+
+	std::ifstream coordfile;
+	std::cout << "coordfile: " << coordfileneame << std::endl;
+
+	coordfile.open(coordfileneame);
 
 	float coords[4] = {0};
 	int n = 0;
@@ -43,9 +55,9 @@ int main(int argc, char *argv[])
 	std::stringstream ss;
 	//
 	std::cout << "Reading slice: " << std::flush;
-	std::vector<std::string> id = getFileID(argv[6]);
+	std::vector<std::string> id = getFileID(slicefileneame);
 	pcl::PointCloud<PointTreeseg>::Ptr slice(new pcl::PointCloud<PointTreeseg>);
-	reader.read(argv[6], *slice);
+	reader.read(slicefileneame, *slice);
 	std::cout << "complete" << std::endl;
 	//
 	std::cout << "Cluster extraction: " << std::flush;
@@ -63,7 +75,6 @@ int main(int argc, char *argv[])
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> regions;
 	nnearest = 9;
 	nmin = 100;
-	float smoothness = atof(argv[1]);
 	for (int i = 0; i < clusters.size(); i++)
 	{
 		std::vector<pcl::PointCloud<PointTreeseg>::Ptr> tmpregions;
@@ -79,10 +90,7 @@ int main(int argc, char *argv[])
 	std::cout << "RANSAC cylinder fits: " << std::flush;
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> cyls;
 	nnearest = 60;
-	float dmin = atof(argv[2]);
-	float dmax = atof(argv[3]);
 
-	float lmin = atof(argv[5]) * 0.75; //assuming 3m slice == 3/4 slice h
 	float stepcovmax = 0.1;
 	float radratiomin = 0.8;
 	float maxangle = 0.3;
@@ -104,7 +112,7 @@ int main(int argc, char *argv[])
 			{
 
 				std::cout << "  cov: " << cyl.stepcov << std::flush;
-				std::cout << "  max_dir: " << std::max(abs(cyl.dx), abs(cyl.dy)) << std::flush;
+				std::cout << "  max_dir: " << std::max(abs(cyl.dx),abs(cyl.dy)) << std::flush;
 
 				if (cyl.stepcov <= stepcovmax)
 				{
@@ -112,11 +120,12 @@ int main(int argc, char *argv[])
 					{
 						if ((cyl.x >= xmin && cyl.x <= xmax) && (cyl.y >= ymin && cyl.y <= ymax))
 						{
-							if ((abs(cyl.dx) < maxangle) && (abs(cyl.dy) < maxangle))
+							if ((abs(cyl.dx) < maxangle) && (abs(cyl.dy) < maxangle) )
 							{
 								cyls.push_back(cyl.inliers);
-								std::cout << green << "  Added Cylinder : " << cylnum << reset << std::flush;
+								std::cout << green << "  Added Cylinder : " << cylnum << reset <<std::flush;
 								cylnum++;
+
 							}
 							else
 							{
