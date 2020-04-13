@@ -28,7 +28,18 @@
 
 #include <pcl/point_types.h>
 
-struct PointTreeseg
+
+#define PointTreeseg pcl::PointXYZ
+
+
+
+
+
+
+
+
+
+struct PointTreesegold
 {
 	PCL_ADD_POINT4D;
 /*

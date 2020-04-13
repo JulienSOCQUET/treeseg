@@ -23,7 +23,7 @@ int main (int argc, char *argv[])
 		std::cout << "\t size:  " << original->points.size() << std::endl;
 
 		std::vector<std::string> id = getFileID(argv[i]);
-		downsample(original,edgelength,filtered);
+		downsample_byOctTree(original,edgelength,filtered);
 		ss.str("");
 		ss << id[0] << ".tile.downsample."  << id[1] << ".pcd"; 
 		writer.write(ss.str(),*filtered,true);
