@@ -333,7 +333,9 @@ std::vector<std::vector<float>> getDemAndSlice(pcl::PointCloud<PointTreeseg>::Pt
 	Eigen::Vector4f plotmin,plotmax;
 	pcl::getMinMax3D(*plot,plotmin,plotmax);
 	for(float x=plotmin[0];x<plotmax[0];x+=resolution)
-	{
+	{	
+		std::cout << "X: " <<x<<"\t of: " << plotmax[0] << std::endl;
+
 		spatial1DFilter(plot,"x",x,x+resolution,tmpcloud);
 		for(float y=plotmin[1];y<plotmax[1];y+=resolution)
 		{
