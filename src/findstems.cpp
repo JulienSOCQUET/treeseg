@@ -24,9 +24,9 @@ int main(int argc, char *argv[])
 
 	float lmin = atof(argv[4]) * 0.75; //assuming 3m slice == 3/4 slice h
 
-	float stepcovmax =  atof(argv[5]);//0.2;
-	float radratiomin =  atof(argv[6]);//0.8;
-	float anglemax  =  atof(argv[7]);//35:
+	float stepcovmax = atof(argv[5]);  //0.2;
+	float radratiomin = atof(argv[6]); //0.8;
+	float anglemax = atof(argv[7]);	   //35:
 
 	char *coordfileneame = argv[8];
 	char *slicefileneame = argv[9];
@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> regions;
 	nnearest = 9;
 	nmin = 100;
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic, 1)
 	for (int i = 0; i < clusters.size(); i++)
 	{
 		std::vector<pcl::PointCloud<PointTreeseg>::Ptr> tmpregions;
@@ -92,6 +92,7 @@ int main(int argc, char *argv[])
 				regions.push_back(tmpregions[j]);
 		}
 	}
+
 	ss.str("");
 	ss << id[0] << ".intermediate.slice.clusters.regions.pcd";
 	writeClouds(regions, ss.str(), false);
@@ -102,22 +103,25 @@ int main(int argc, char *argv[])
 	nnearest = 60;
 
 	int cylnum = 0;
+	int donecount = 0;
 
-#pragma omp parallel for
+// #pragma omp parallel
+// 	{
+#pragma omp parallel for schedule(dynamic, 1)
 	for (int i = 0; i < regions.size(); i++)
 	{
 		cylinder cyl;
 		fitCylinder(regions[i], nnearest, true, true, cyl);
 
-		if (cyl.ismodel == true)
+		donecount++;
+
+			if (cyl.ismodel == true)
 		{
 			if (cyl.rad * 2 >= dmin && cyl.rad * 2 <= dmax && cyl.len >= lmin)
 			{
-
-				std::cout << "Region : " << i << "\t of : " << regions.size() << std::flush;
+				std::cout << "Done : " << donecount << "\t of : " << regions.size() << std::flush;
 
 				std::cout << "  cov: " << cyl.stepcov << std::flush;
-				std::cout << "  max_dir: " << std::max(abs(cyl.dx), abs(cyl.dy)) << std::flush;
 
 				if (cyl.stepcov <= stepcovmax)
 				{
@@ -149,10 +153,12 @@ int main(int argc, char *argv[])
 					std::cout << "  cov too large," << std::flush;
 				}
 				std::cout << std::endl;
-
 			}
 		}
 	}
+
+	std::cout << "Done with loop" << std::endl;
+	std::cout << "Found: " << cyls.size() << " Cylinders" << std::endl;
 
 	ss.str("");
 	ss << id[0] << ".intermediate.slice.clusters.regions.cylinders.pcd";

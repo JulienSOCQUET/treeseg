@@ -100,4 +100,4 @@ int findPrincipalCloudIdx(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &cloud
 
 float interpolatedNNZ(float x, std::vector<std::vector<float>> nndata, bool extrapolate);
 void removeFarRegions(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters);
-void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::PointCloud<PointTreeseg>::Ptr &tree);
+void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::PointCloud<PointTreeseg>::Ptr &tree, std::string id);

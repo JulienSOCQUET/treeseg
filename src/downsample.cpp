@@ -14,7 +14,7 @@ int main(int argc, char *argv[])
 	pcl::PCDReader reader;
 	pcl::PCDWriter writer;
 
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic, 1)
 	for (int i = 2; i < argc; i++)
 	{
 		std::stringstream ss;

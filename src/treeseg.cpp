@@ -304,6 +304,8 @@ void spatial3DCylinderFilter(pcl::PointCloud<PointTreeseg>::Ptr &original, cylin
 	Eigen::Vector3f cn1 = cp2 - cp1;
 	cn1.normalize();
 	Eigen::Vector3f cn2 = -cn1;
+
+#pragma omp taskloop
 	for (int i = 0; i < original->points.size(); i++)
 	{
 		Eigen::Vector3f p(original->points[i].x, original->points[i].y, original->points[i].z);
@@ -317,7 +319,10 @@ void spatial3DCylinderFilter(pcl::PointCloud<PointTreeseg>::Ptr &original, cylin
 				float dist = sqrt(pow(mp(0) - cp1(0), 2) + pow(mp(1) - cp1(1), 2) + pow(mp(2) - cp1(2), 2));
 				if (dist <= cyl.rad)
 				{
-					filtered->insert(filtered->end(), original->points[i]);
+#pragma omp critical
+					{
+						filtered->insert(filtered->end(), original->points[i]);
+					}
 				}
 			}
 		}
@@ -723,15 +728,19 @@ void correctStem(pcl::PointCloud<PointTreeseg>::Ptr &stem, float nnearest, float
 		float stdev = std::sqrt(std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0) / zrad.size());
 		float cov = stdev / mean;
 		float radchange = std::min(circle[2], mean) / std::max(circle[2], mean);
-		//std::cout << circle[2] << " " << mean << " " << cov << " " << radchange << std::endl;
+		std::cout << circle[2] << " " << mean << " " << cov << " " << radchange << std::endl;
+		std::cout << z << " " << z - zstep * 1.5 << " " << min[2] << std::endl;
+
 		if (cov > stepcovmax || radchange < radchangemin)
 		{
 			zstop = z - zstep * 1.5;
 			broken = true;
+			std::cout << " Broke: " << zstop << std::endl;
+
 			break;
 		}
 	}
-	if (broken == false)
+	if (broken == true)
 		spatial1DFilter(stem, "z", min[2], zstop, corrected);
 	else
 		spatial1DFilter(stem, "z", min[2], max[2] - zstep, corrected);
@@ -793,6 +802,8 @@ bool sortCol(const std::vector<int> &v1, const std::vector<int> &v2)
 
 int findPrincipalCloudIdx(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clouds)
 {
+	//get clusters in bottom 2 meters
+	//return cluster idx with most points
 	std::vector<std::vector<int>> info;
 	pcl::PointCloud<PointTreeseg>::Ptr cloud(new pcl::PointCloud<PointTreeseg>);
 	for (int i = 0; i < clouds.size(); i++)
@@ -856,10 +867,12 @@ void removeFarRegions(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters)
 	float xm = (max[0] + min[0]) / 2;
 	float ym = (max[1] + min[1]) / 2;
 	std::vector<float> zloc(clusters.size());
+	#pragma omp taskloop
 	for (int i = 0; i < clusters.size(); i++)
 	{
 		Eigen::Vector4f cmin, cmax;
 		pcl::getMinMax3D(*clusters[i], cmin, cmax);
+		// std::cout << "cmin: " << cmin[2] << " cmax: " << cmax[2] << std::endl;
 		zloc[i] = cmin[2];
 	}
 	std::vector<float> tmp = zloc;
@@ -867,6 +880,7 @@ void removeFarRegions(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters)
 	int pos = static_cast<int>(static_cast<float>(clusters.size()) * 0.1);
 	float zmax = tmp[pos];
 	std::vector<int> remove_list;
+#pragma omp taskloop
 	for (int i = 0; i < clusters.size(); i++)
 	{
 		if (zloc[i] < zmax)
@@ -879,7 +893,10 @@ void removeFarRegions(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters)
 			float sym = (smax[1] + smin[1]) / 2;
 			float d = sqrt(pow((sxm - xm), 2) + pow((sym - ym), 2));
 			if (d > 0.5)
+#pragma omp critical
+			{
 				remove_list.push_back(i);
+			}
 		}
 	}
 	std::sort(remove_list.begin(), remove_list.end(), std::greater<int>());
@@ -887,8 +904,10 @@ void removeFarRegions(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters)
 		clusters.erase(clusters.begin() + remove_list[k]);
 }
 
-void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::PointCloud<PointTreeseg>::Ptr &tree)
+
+void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::PointCloud<PointTreeseg>::Ptr &tree, std::string id)
 {
+
 	pcl::PointCloud<PointTreeseg>::Ptr tmpcloud(new pcl::PointCloud<PointTreeseg>);
 	for (int a = 0; a < clusters.size(); a++)
 		*tmpcloud += *clusters[a];
@@ -901,11 +920,23 @@ void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::P
 	clusters.erase(clusters.begin() + idx);
 	int count = 0;
 	bool donesomething = true;
+
+	std::cout << " Numthreads " << omp_get_num_threads() << std::endl;
+
+
+	int allcounter = 0;
+
 	while (donesomething == true)
 	{
+		std::vector<int> all_members;
 		std::vector<pcl::PointCloud<PointTreeseg>::Ptr> tmp;
+
+		std::cout << id << " outer size: " << outer.size() << std::endl;
+
+#pragma omp taskloop shared(all_members, allcounter)
 		for (int i = 0; i < outer.size(); i++)
 		{
+
 			std::vector<int> member;
 			Eigen::Vector4f outercentroid;
 			Eigen::Matrix3f outercovariancematrix;
@@ -914,16 +945,21 @@ void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::P
 			pcl::PointCloud<PointTreeseg>::Ptr outertransformed(new pcl::PointCloud<PointTreeseg>);
 			Eigen::Vector4f outermin, outermax;
 			float outerlength;
-			computePCA(outer[i], outercentroid, outercovariancematrix, outereigenvectors, outereigenvalues);
+			// std::cout << i << " 2os" << std::flush;
+
+			computePCA(outer[i], outercentroid, outercovariancematrix, outereigenvectors, outereigenvalues); //get  primary direction
 			Eigen::Vector3f outerpoint(outercentroid[0], outercentroid[1], outercentroid[2]);
 			Eigen::Vector3f outerdirection(outereigenvectors(0, 2), outereigenvectors(1, 2), outereigenvectors(2, 2));
 			Eigen::Affine3f outertransform;
-			Eigen::Vector3f outerworld(0, outerdirection[2], -outerdirection[1]);
+			Eigen::Vector3f outerworld(0, outerdirection[2], -outerdirection[1]); //?
+
 			outerdirection.normalize();
 			pcl::getTransformationFromTwoUnitVectorsAndOrigin(outerworld, outerdirection, outerpoint, outertransform);
 			pcl::transformPointCloud(*outer[i], *outertransformed, outertransform);
 			pcl::getMinMax3D(*outertransformed, outermin, outermax);
 			outerlength = outermax[2] - outermin[2];
+
+#pragma omp taskloop shared(member, allcounter)
 			for (int j = 0; j < clusters.size(); j++)
 			{
 				float d;
@@ -956,16 +992,31 @@ void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::P
 					Eigen::Vector4f clustervector(clustereigenvectors(0, 2), clustereigenvectors(1, 2), clustereigenvectors(2, 2), 0);
 					float angle = pcl::getAngle3D(outervector, clustervector) * (180 / M_PI);
 					if (clusterlength < outerlength)
+					{					
+#pragma omp critical(member)
 						member.push_back(j);
+					}
 				}
+#pragma omp atomic
+				allcounter++;
 			}
-			std::sort(member.begin(), member.end(), std::greater<int>());
+
+#pragma omp critical(member)
 			for (int k = 0; k < member.size(); k++)
-			{
-				tmp.push_back(clusters[member[k]]);
-				clusters.erase(clusters.begin() + member[k]);
-			}
+				all_members.push_back(member[k]);
 		}
+
+		std::cout << id << " done outer, Num calcs: " << allcounter << std::endl;
+
+		std::sort(all_members.begin(), all_members.end(), std::greater<int>());
+		all_members.erase(unique(all_members.begin(), all_members.end()), all_members.end());
+
+		for (int k = 0; k < all_members.size(); k++)
+		{
+			tmp.push_back(clusters[all_members[k]]);
+			clusters.erase(clusters.begin() + all_members[k]);
+		}
+
 		if (tmp.size() != 0)
 		{
 			outer.clear();
@@ -978,8 +1029,10 @@ void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::P
 		else
 			donesomething = false;
 		count++;
-		std::cout << "." << std::flush;
-	}
+	} //while loop
+
+	std::cout << id << " treeclusters: " << treeclusters.size() << std::endl;
+
 	for (int n = 0; n < treeclusters.size(); n++)
 		*tree += *treeclusters[n];
 }
