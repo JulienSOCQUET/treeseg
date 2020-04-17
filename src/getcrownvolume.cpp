@@ -64,6 +64,7 @@ int main(int argc, char **argv)
 
 			float h = maxheight(params.d);
 			float c = maxcrown(params.d);
+
 			std::cout << h << "m x " << c << "m (HxW)" << std::endl;
 			//
 			std::cout << "Segmenting volume: " << std::flush;
@@ -81,9 +82,28 @@ int main(int argc, char **argv)
 
 			*volume += *stem;
 			*volume += *zslice;
+
+
+			cylinder cyl;
+
+			cyl.rad = c/2.0;// max crown
+			cyl.x = centroid[0];// x position
+			cyl.y = centroid[1];// y position
+			cyl.z =  min[2];// ground level
+			cyl.dx = 0;// vertical
+			cyl.dy = 0;// vertical
+			cyl.dz = 1;// vertical
+
+			pcl::PointCloud<PointTreeseg>::Ptr volumecyl(new pcl::PointCloud<PointTreeseg>);
+
+			std::cout << "Start Spatial3DCylinderFilter : " << std::endl;
+			spatial3DCylinderFilter(volume, cyl, volumecyl);
+			std::cout << "Done Spatial3DCylinderFilter : " << std::endl;
+
+
 			std::stringstream ss;
 			ss << id[0] << ".volume." << id[1] << ".pcd";
-			writer.write(ss.str(), *volume, true);
+			writer.write(ss.str(), *volumecyl, true);
 			std::cout << ss.str() << std::endl;
 			// #pragma omp critical
 			// 		{
