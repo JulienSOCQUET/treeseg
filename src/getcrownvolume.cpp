@@ -21,7 +21,7 @@ float maxcrown(float dbh)
 	//m    -> 29.40 * dbh ^ 0.6524
 	//ci_u -> 30.36 * dbh ^ 0.6931
 	// float extent = 30.36 * pow(dbh, 0.6931) + 5;
-	float extent = 30 *dbh;
+	float extent = 60 *dbh;
 
 	return extent;
 }
@@ -59,6 +59,9 @@ int main(int argc, char **argv)
 			std::cout << params.d << std::endl;
 			//
 			std::cout << "Crown dimensions: " << std::flush;
+			// if (params.d <0.15)
+			// 	params.d =0.4;
+
 			float h = maxheight(params.d);
 			float c = maxcrown(params.d);
 			std::cout << h << "m x " << c << "m (HxW)" << std::endl;

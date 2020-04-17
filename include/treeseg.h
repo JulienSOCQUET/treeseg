@@ -84,8 +84,8 @@ void regionSegmentation(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest,
 void writeClouds(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> clusters, std::string fname, bool doPCA);
 
 std::vector<float> fitCircle(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest);
-void fitCylinder(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, bool finite, bool diagnostics, cylinder &cyl);
-void cylinderDiagnostics(cylinder &cyl, int nnearest);
+void fitCylinder(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, bool finite, bool diagnostics, cylinder &cyl,int numpoints);
+void cylinderDiagnostics(cylinder &cyl, int nnearest, int numpoints);
 void fitPlane(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, pcl::PointIndices::Ptr &inliers);
 
 bool intersectionTest3DBox(Eigen::Vector4f amin, Eigen::Vector4f amax, Eigen::Vector4f bmin, Eigen::Vector4f bmax);

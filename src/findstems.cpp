@@ -7,6 +7,7 @@
 #include <algorithm> // std::max
 
 #include <omp.h>
+#include <chrono>
 
 const std::string reset("\033[0m");
 const std::string red("\033[0;31m");
@@ -22,14 +23,18 @@ int main(int argc, char *argv[])
 	float dmin = atof(argv[2]);
 	float dmax = atof(argv[3]);
 
-	float lmin = atof(argv[4]) * 0.75; //assuming 3m slice == 3/4 slice h
+	float lmin = atof(argv[4]); //assuming 3m slice == 3/4 slice h
 
 	float stepcovmax = atof(argv[5]);  //0.2;
 	float radratiomin = atof(argv[6]); //0.8;
 	float anglemax = atof(argv[7]);	   //35:
 
-	char *coordfileneame = argv[8];
-	char *slicefileneame = argv[9];
+	float numpoints = atof(argv[8]); //10:
+
+	char *coordfileneame = argv[9];
+	char *slicefileneame = argv[10];
+
+	auto start_time = std::chrono::steady_clock::now();
 
 	std::ifstream coordfile;
 	std::cout << "coordfile: " << coordfileneame << std::endl;
@@ -81,12 +86,14 @@ int main(int argc, char *argv[])
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> regions;
 	nnearest = 9;
 	nmin = 100;
+
+	//#TODO
 #pragma omp parallel for schedule(dynamic, 1)
 	for (int i = 0; i < clusters.size(); i++)
 	{
 		std::vector<pcl::PointCloud<PointTreeseg>::Ptr> tmpregions;
 		regionSegmentation(clusters[i], nnearest, nmin, smoothness, tmpregions);
-#pragma omp critical
+#pragma omp critical(regions)
 		{
 			for (int j = 0; j < tmpregions.size(); j++)
 				regions.push_back(tmpregions[j]);
@@ -107,52 +114,37 @@ int main(int argc, char *argv[])
 
 // #pragma omp parallel
 // 	{
-#pragma omp parallel for schedule(dynamic, 1)
+#pragma omp parallel for shared(regions) schedule(dynamic, 1)
 	for (int i = 0; i < regions.size(); i++)
 	{
 		cylinder cyl;
-		fitCylinder(regions[i], nnearest, true, true, cyl);
-
+		fitCylinder(regions[i], nnearest, true, true, cyl, numpoints);
+#pragma omp atomic
 		donecount++;
 
-			if (cyl.ismodel == true)
+		if (cyl.ismodel == true)
 		{
-			if (cyl.rad * 2 >= dmin && cyl.rad * 2 <= dmax && cyl.len >= lmin)
+			if ((cyl.x >= xmin && cyl.x <= xmax) && (cyl.y >= ymin && cyl.y <= ymax))
 			{
-				std::cout << "Done : " << donecount << "\t of : " << regions.size() << std::flush;
-
-				std::cout << "  cov: " << cyl.stepcov << std::flush;
-
-				if (cyl.stepcov <= stepcovmax)
+				if (cyl.rad * 2 >= dmin && cyl.rad * 2 <= dmax && cyl.len >= lmin)
 				{
-					if (cyl.radratio > radratiomin)
+					if (cyl.stepcov <= stepcovmax)
 					{
-						if ((cyl.x >= xmin && cyl.x <= xmax) && (cyl.y >= ymin && cyl.y <= ymax))
+						if (cyl.radratio > radratiomin)
 						{
 
-#pragma omp critical
+#pragma omp critical(pushcyl)
 							{
 
 								cyls.push_back(cyl.inliers);
-								std::cout << green << "  Added Cylinder : " << cylnum << reset << std::flush;
+								std::cout << green;
 								cylnum++;
 							}
 						}
-						else
-						{
-							std::cout << "  Outside Coords :" << std::flush;
-						}
-					}
-					else
-					{
-						std::cout << "  radratio too large," << std::flush;
 					}
 				}
-				else
-				{
-					std::cout << "  cov too large," << std::flush;
-				}
-				std::cout << std::endl;
+#pragma omp critical(print)
+				std::cout << donecount << "\t of : " << regions.size() << "\trad: " << cyl.rad << "\tlen: " << cyl.len << "\tstepcov: " << cyl.stepcov << "\tradratio: " << cyl.radratio << "\tcoords: " << ((cyl.x >= xmin && cyl.x <= xmax) && (cyl.y >= ymin && cyl.y <= ymax)) << "\tnumcyls: " << cylnum << reset << std::endl;
 			}
 		}
 	}
@@ -178,8 +170,12 @@ int main(int argc, char *argv[])
 		Eigen::Vector4f gvector(eigenvectors(0, 2), eigenvectors(1, 2), 0, 0);
 		Eigen::Vector4f cvector(eigenvectors(0, 2), eigenvectors(1, 2), eigenvectors(2, 2), 0);
 		float angle = pcl::getAngle3D(gvector, cvector) * (180 / M_PI);
-		if (angle >= (90 - anglemax) || angle <= (90 + anglemax))
+		std::cout << "Cyl: " << j << "angle: " << angle <<" amax" << anglemax << std::endl;
+
+		if (angle >= (90.0 - anglemax) && angle <= (90.0 + anglemax))
 			idx.push_back(j);
+		else
+			std::cout << "Bad angle: " << std::endl;
 	}
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> pca;
 	for (int k = 0; k < idx.size(); k++)
@@ -205,5 +201,12 @@ int main(int argc, char *argv[])
 	}
 	std::cout << ss.str() << " | " << stems.size() << std::endl;
 	//
+
+	auto end_time = std::chrono::steady_clock::now();
+
+	std::cout << "Elapsed time in seconds : "
+			  << std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count()
+			  << " sec" << std::endl;
+
 	return 0;
 }

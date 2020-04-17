@@ -518,13 +518,13 @@ std::vector<float> fitCircle(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnea
 	return results;
 }
 
-void fitCylinder(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, bool finite, bool diagnostics, cylinder &cyl)
+void fitCylinder(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, bool finite, bool diagnostics, cylinder &cyl, int numpoints)
 {
 	cyl.ismodel = false;
-	if (cloud->points.size() >= 10)
+	if (cloud->points.size() >= numpoints)
 	{
 		std::vector<float> nndata;
-		nndata = dNN(cloud, nnearest);
+		nndata = dNN(cloud, nnearest);// get nearest neigbour distance for ~60 points shoudl be downsample distance?
 		float nndist = nndata[0];
 		pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
 		estimateNormals(cloud, nnearest, normals);
@@ -538,7 +538,7 @@ void fitCylinder(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, bool f
 		seg.setNormalDistanceWeight(0.1);
 		seg.setMethodType(pcl::SAC_RANSAC);
 		seg.setMaxIterations(1000000);
-		seg.setDistanceThreshold(nndist);
+		seg.setDistanceThreshold(nndist); //only return points withing a downsample disance of cylinder model
 		seg.setInputCloud(cloud);
 		seg.setInputNormals(normals);
 		seg.segment(indices, coeff);
@@ -556,29 +556,68 @@ void fitCylinder(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, bool f
 			cyl.dy = coeff.values[4];
 			cyl.dz = coeff.values[5];
 			cyl.rad = coeff.values[6];
+
+			cyl.steprad = 0; //init these to zero as we are not always setting in these in cylinderDiagnostics
+			cyl.stepcov = 0;
+			cyl.radratio = 0;
+
 			cyl.cloud = cloud;
 			cyl.inliers = inliers;
+			if (cyl.rad < 0)
+				return;
+
 			if (cyl.rad > 0 && finite == false && diagnostics == false)
+			{
 				cyl.ismodel = true;
+				return;
+			}
+
+			pcl::PointCloud<PointTreeseg>::Ptr inliers_transformed(new pcl::PointCloud<PointTreeseg>);
+			Eigen::Vector3f point(cyl.x, cyl.y, cyl.z);
+			Eigen::Vector3f direction(cyl.dx, cyl.dy, cyl.dz); //get cylinder direction
+			Eigen::Affine3f transform;
+			Eigen::Vector3f world(0, direction[2], -direction[1]); // make perpenducular vector
+			direction.normalize();
+			pcl::getTransformationFromTwoUnitVectorsAndOrigin(world, direction, point, transform); // get transform for points inside cylinder
+			pcl::transformPointCloud(*cyl.inliers, *inliers_transformed, transform);			   // make points inside cylinder vertical
+			Eigen::Vector4f min, max;
+			pcl::getMinMax3D(*inliers_transformed, min, max);//get start and end of cylinder
+
 			if (cyl.rad > 0 && finite == true)
 			{
-				pcl::PointCloud<PointTreeseg>::Ptr inliers_transformed(new pcl::PointCloud<PointTreeseg>);
-				Eigen::Vector3f point(coeff.values[0], coeff.values[1], coeff.values[2]);
-				Eigen::Vector3f direction(coeff.values[3], coeff.values[4], coeff.values[5]);
-				Eigen::Affine3f transform;
-				Eigen::Vector3f world(0, direction[2], -direction[1]);
-				direction.normalize();
-				pcl::getTransformationFromTwoUnitVectorsAndOrigin(world, direction, point, transform);
-				pcl::transformPointCloud(*inliers, *inliers_transformed, transform);
-				Eigen::Vector4f min, max;
-				pcl::getMinMax3D(*inliers_transformed, min, max);
 				cyl.len = max[2] - min[2];
 				if (cyl.len > 0)
 					cyl.ismodel = true;
 			}
 			if (cyl.rad > 0 && diagnostics == true)
 			{
-				cylinderDiagnostics(cyl, nnearest);
+				// cylinderDiagnostics(cyl, nnearest, numpoints); // do cylinder fitting over 6 zsteps
+				//tpet93 inline cylinder diagnostics, avoid transofrimng pointcloud each time
+				int NSTEP = 6;
+				float zstep = (max[2] - min[2]) / NSTEP;
+				std::vector<float> zrads;
+				for (int i = 0; i < NSTEP; i++)
+				{
+					float zmin = min[2] + i * zstep;
+					float zmax = min[2] + (i + 1) * zstep;
+					pcl::PointCloud<PointTreeseg>::Ptr slice(new pcl::PointCloud<PointTreeseg>);
+					spatial1DFilter(inliers_transformed, "z", zmin, zmax, slice);
+					cylinder zcyl;
+					fitCylinder(slice, nnearest, false, false, zcyl, numpoints);
+					if (zcyl.ismodel == true)
+						zrads.push_back(zcyl.rad);
+				}
+				if (zrads.size() >= NSTEP - 2)
+				{
+					float sum = std::accumulate(zrads.begin(), zrads.end(), 0.0);
+					float mean = sum / zrads.size();
+					std::vector<float> diff(zrads.size());
+					std::transform(zrads.begin(), zrads.end(), diff.begin(), std::bind2nd(std::minus<float>(), mean));
+					float stddev = std::sqrt(std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0) / zrads.size());
+					cyl.steprad = mean;
+					cyl.stepcov = stddev / mean;
+					cyl.radratio = std::min(cyl.rad, cyl.steprad) / std::max(cyl.rad, cyl.steprad);
+				}
 				if (cyl.steprad > 0)
 					cyl.ismodel = true;
 			}
@@ -601,19 +640,21 @@ void fitPlane(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, pcl::Poin
 	seg.segment(*inliers, *coefficients);
 }
 
-void cylinderDiagnostics(cylinder &cyl, int nnearest)
+void cylinderDiagnostics(cylinder &cyl, int nnearest, int numpoints)
 {
 	int NSTEP = 6;
+
 	pcl::PointCloud<PointTreeseg>::Ptr inliers_transformed(new pcl::PointCloud<PointTreeseg>);
 	Eigen::Vector3f point(cyl.x, cyl.y, cyl.z);
-	Eigen::Vector3f direction(cyl.dx, cyl.dy, cyl.dz);
+	Eigen::Vector3f direction(cyl.dx, cyl.dy, cyl.dz); //get cylinder direction
 	Eigen::Affine3f transform;
-	Eigen::Vector3f world(0, direction[2], -direction[1]);
+	Eigen::Vector3f world(0, direction[2], -direction[1]); // make perpenducular vector
 	direction.normalize();
-	pcl::getTransformationFromTwoUnitVectorsAndOrigin(world, direction, point, transform);
-	pcl::transformPointCloud(*cyl.inliers, *inliers_transformed, transform);
+	pcl::getTransformationFromTwoUnitVectorsAndOrigin(world, direction, point, transform); // get transform for points inside cylinder
+	pcl::transformPointCloud(*cyl.inliers, *inliers_transformed, transform);			   // make points inside cylinder vertical
 	Eigen::Vector4f min, max;
 	pcl::getMinMax3D(*inliers_transformed, min, max);
+
 	float zstep = (max[2] - min[2]) / NSTEP;
 	std::vector<float> zrads;
 	for (int i = 0; i < NSTEP; i++)
@@ -623,7 +664,7 @@ void cylinderDiagnostics(cylinder &cyl, int nnearest)
 		pcl::PointCloud<PointTreeseg>::Ptr slice(new pcl::PointCloud<PointTreeseg>);
 		spatial1DFilter(inliers_transformed, "z", zmin, zmax, slice);
 		cylinder zcyl;
-		fitCylinder(slice, nnearest, false, false, zcyl);
+		fitCylinder(slice, nnearest, false, false, zcyl, numpoints);
 		if (zcyl.ismodel == true)
 			zrads.push_back(zcyl.rad);
 	}
@@ -776,9 +817,9 @@ treeparams getTreeParams(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest
 				params.c = sqrt(pow(max[0] - min[0], 2) + pow(max[1] - min[1], 2));
 			}
 			cylinder cyl, bcyl, fcyl;
-			fitCylinder(slice, nnearest, false, true, cyl);
-			fitCylinder(bslice, nnearest, false, false, bcyl);
-			fitCylinder(fslice, nnearest, false, false, fcyl);
+			fitCylinder(slice, nnearest, false, true, cyl, 10);
+			fitCylinder(bslice, nnearest, false, false, bcyl, 10);
+			fitCylinder(fslice, nnearest, false, false, fcyl, 10);
 			float d = (cyl.rad + bcyl.rad + fcyl.rad) / 3 * 2;
 			float bdiff = fabs(cyl.rad - bcyl.rad) / cyl.rad;
 			float fdiff = fabs(cyl.rad - fcyl.rad) / cyl.rad;
@@ -863,22 +904,22 @@ void removeFarRegions(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters)
 	for (int i = 0; i < clusters.size(); i++)
 		*cloud += *clusters[i];
 	Eigen::Vector4f min, max;
-	pcl::getMinMax3D(*cloud, min, max);
-	float xm = (max[0] + min[0]) / 2;
-	float ym = (max[1] + min[1]) / 2;
+	pcl::getMinMax3D(*cloud, min, max); //get cloud limits
+	float xm = (max[0] + min[0]) / 2;	//get cloud middle x
+	float ym = (max[1] + min[1]) / 2;	//get cloud middle y
 	std::vector<float> zloc(clusters.size());
-	#pragma omp taskloop
+#pragma omp taskloop
 	for (int i = 0; i < clusters.size(); i++)
 	{
 		Eigen::Vector4f cmin, cmax;
 		pcl::getMinMax3D(*clusters[i], cmin, cmax);
 		// std::cout << "cmin: " << cmin[2] << " cmax: " << cmax[2] << std::endl;
-		zloc[i] = cmin[2];
+		zloc[i] = cmin[2]; //get lowest height of each cluster
 	}
 	std::vector<float> tmp = zloc;
 	std::sort(tmp.begin(), tmp.end());
-	int pos = static_cast<int>(static_cast<float>(clusters.size()) * 0.1);
-	float zmax = tmp[pos];
+	int pos = static_cast<int>(static_cast<float>(clusters.size()) * 0.1); //get first 10% of lowest clusters
+	float zmax = tmp[pos];												   //zmax min height of first 10% cluster
 	std::vector<int> remove_list;
 #pragma omp taskloop
 	for (int i = 0; i < clusters.size(); i++)
@@ -895,7 +936,7 @@ void removeFarRegions(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters)
 			if (d > 0.5)
 #pragma omp critical
 			{
-				remove_list.push_back(i);
+				remove_list.push_back(i); // if cluster below zmax and center is over 0.5m from center of main cloud
 			}
 		}
 	}
@@ -904,15 +945,14 @@ void removeFarRegions(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters)
 		clusters.erase(clusters.begin() + remove_list[k]);
 }
 
-
 void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::PointCloud<PointTreeseg>::Ptr &tree, std::string id)
 {
 
 	pcl::PointCloud<PointTreeseg>::Ptr tmpcloud(new pcl::PointCloud<PointTreeseg>);
 	for (int a = 0; a < clusters.size(); a++)
 		*tmpcloud += *clusters[a];
-	std::vector<std::vector<float>> nndata = dNNz(tmpcloud, 50, 2); //careful here
-	int idx = findPrincipalCloudIdx(clusters);
+	std::vector<std::vector<float>> nndata = dNNz(tmpcloud, 50, 2); //nn distance,min around downsample dist and bigger in canopy
+	int idx = findPrincipalCloudIdx(clusters);	//get clusters in bottom 2 meters//return cluster idx with most points
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> treeclusters;
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> outer;
 	treeclusters.push_back(clusters[idx]);
@@ -922,7 +962,6 @@ void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::P
 	bool donesomething = true;
 
 	std::cout << " Numthreads " << omp_get_num_threads() << std::endl;
-
 
 	int allcounter = 0;
 
@@ -992,7 +1031,7 @@ void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::P
 					Eigen::Vector4f clustervector(clustereigenvectors(0, 2), clustereigenvectors(1, 2), clustereigenvectors(2, 2), 0);
 					float angle = pcl::getAngle3D(outervector, clustervector) * (180 / M_PI);
 					if (clusterlength < outerlength)
-					{					
+					{
 #pragma omp critical(member)
 						member.push_back(j);
 					}

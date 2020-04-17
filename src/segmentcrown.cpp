@@ -6,16 +6,6 @@
 
 #include <armadillo>
 
-#include <pcl/io/pcd_io.h>
-#include <pcl/common/transforms.h>
-#include <pcl/filters/passthrough.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/extract_indices.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/segmentation/extract_clusters.h>
-#include <pcl/segmentation/region_growing.h>
-#include <pcl/segmentation/sac_segmentation.h>
-#include <pcl/octree/octree.h>
 
 #include <chrono>
 
@@ -72,15 +62,15 @@ int main(int argc, char *argv[])
 		std::cout << ss.str() << std::endl;
 		//
 		start_time = std::chrono::steady_clock::now();
-
-		if (sepwoodleaf == true)
+		int ngausians = 5;
+		if ((sepwoodleaf == true) && (regions.size()>=ngausians))
 		{
 			std::cout << "Leaf stripping: " << std::endl;
 			//
 			std::cout << " Region-wise, " << std::flush;
 			arma::mat rfmat;
 			arma::gmm_full rmodel;
-			gmmByCluster(regions, 5, 1, 5, 50, 100, rfmat, rmodel);
+			gmmByCluster(regions, ngausians, 1, 5, 50, 100, rfmat, rmodel);
 			std::cout << "Done Gmm by Cluster " << std::endl;
 
 			std::vector<int> rclassifications;

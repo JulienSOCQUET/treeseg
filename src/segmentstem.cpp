@@ -17,8 +17,9 @@ int main(int argc, char *argv[])
 	float zstart = atof(argv[4]); //5;
 	float stepcovmax = atof(argv[5]); //0.05;
 	float radchangemin = atof(argv[6]); //0.9;
+	float numpoints = atof(argv[7]); //0.9;
 
-	int start_argc = 7;
+	int start_argc = 8;
 
 	auto start_time = std::chrono::steady_clock::now();
 	std::cout << "max num threads: " << omp_get_max_threads() << std::endl;
@@ -49,7 +50,7 @@ int main(int argc, char *argv[])
 			std::cout << "RANSAC cylinder fit: " << std::flush;
 			int nnearest = 60;
 			cylinder cyl;
-			fitCylinder(foundstem, nnearest, false, false, cyl);
+			fitCylinder(foundstem, nnearest, false, false, cyl,numpoints);
 			if (cyl.rad < minrad)
 				cyl.rad = minrad;
 			std::cout << cyl.rad << std::endl;
