@@ -524,7 +524,7 @@ void fitCylinder(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, bool f
 	if (cloud->points.size() >= numpoints)
 	{
 		std::vector<float> nndata;
-		nndata = dNN(cloud, nnearest);// get nearest neigbour distance for ~60 points shoudl be downsample distance?
+		nndata = dNN(cloud, nnearest); // get nearest neigbour distance for ~60 points shoudl be downsample distance?
 		float nndist = nndata[0];
 		pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
 		estimateNormals(cloud, nnearest, normals);
@@ -581,7 +581,7 @@ void fitCylinder(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, bool f
 			pcl::getTransformationFromTwoUnitVectorsAndOrigin(world, direction, point, transform); // get transform for points inside cylinder
 			pcl::transformPointCloud(*cyl.inliers, *inliers_transformed, transform);			   // make points inside cylinder vertical
 			Eigen::Vector4f min, max;
-			pcl::getMinMax3D(*inliers_transformed, min, max);//get start and end of cylinder
+			pcl::getMinMax3D(*inliers_transformed, min, max); //get start and end of cylinder
 
 			if (cyl.rad > 0 && finite == true)
 			{
@@ -714,6 +714,8 @@ void catIntersectingClouds(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clou
 					bool intersects = intersectionTest3DBox(amin, amax, bmin, bmax);
 					if (intersects == true)
 						duplicates.push_back(j);
+					if (intersects == true)
+						std::cout << "found duplicate" << i << "  " << j << std::endl;
 				}
 			}
 			if (duplicates.size() > 0)
@@ -763,20 +765,20 @@ void correctStem(pcl::PointCloud<PointTreeseg>::Ptr &stem, float nnearest, float
 			}
 		}
 		float sum = std::accumulate(zrad.begin(), zrad.end(), 0.0);
-		float mean = sum / zrad.size();
+		float mean = sum / zrad.size(); //meand of circles radius
 		std::vector<float> diff(zrad.size());
-		std::transform(zrad.begin(), zrad.end(), diff.begin(), std::bind2nd(std::minus<float>(), mean));
-		float stdev = std::sqrt(std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0) / zrad.size());
+		std::transform(zrad.begin(), zrad.end(), diff.begin(), std::bind2nd(std::minus<float>(), mean));		//diffrence of each elemenet from mean
+		float stdev = std::sqrt(std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0) / zrad.size()); // std deviations of differences
 		float cov = stdev / mean;
 		float radchange = std::min(circle[2], mean) / std::max(circle[2], mean);
-		std::cout << circle[2] << " " << mean << " " << cov << " " << radchange << std::endl;
-		std::cout << z << " " << z - zstep * 1.5 << " " << min[2] << std::endl;
+		std::cout << z-min[2] << circle[2] << " " << mean << " " << cov << " " << radchange << std::endl;
+		// std::cout << z << " " << z - zstep * 1.5 << " " << min[2] << std::endl;
 
 		if (cov > stepcovmax || radchange < radchangemin)
 		{
 			zstop = z - zstep * 1.5;
 			broken = true;
-			std::cout << " Broke: " << zstop << std::endl;
+			std::cout << " Broke: " << zstop-min[2] << std::endl;
 
 			break;
 		}
@@ -792,44 +794,65 @@ treeparams getTreeParams(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest
 	treeparams params;
 	Eigen::Vector4f min, max;
 	pcl::getMinMax3D(*cloud, min, max);
-	float z = min[2] + 1.3;
+	float bh = 1.3;
+	float z = min[2] + bh;
 	int i = 0;
 	bool stable = false;
-	while (stable == false)
+	// std::cout << " zmin " << min[2] << " zmmax " << max[2] << "  zstep: " << zstep << std::endl;
+	params.d = 0; // initialize incase below fails
+
+	while ((stable == false) && (z < max[2]))
 	{
-		if (z >= max[2] - zstep * 1.5)
-			break;
-		else
+		// std::cout << "starting treeparam" << std::endl;
+
+		while (z >= max[2] - zstep * 1.5) // scale down zstep to work with short stems
 		{
-			pcl::PointCloud<PointTreeseg>::Ptr slice(new pcl::PointCloud<PointTreeseg>);
-			pcl::PointCloud<PointTreeseg>::Ptr bslice(new pcl::PointCloud<PointTreeseg>);
-			pcl::PointCloud<PointTreeseg>::Ptr fslice(new pcl::PointCloud<PointTreeseg>);
-			spatial1DFilter(cloud, "z", z - zstep / 2, z + zstep / 2, slice);
-			spatial1DFilter(cloud, "z", z - zstep * 1.5, z - zstep / 2, bslice);
-			spatial1DFilter(cloud, "z", z + zstep / 2, z + zstep * 1.5, fslice);
-			if (i == 0)
+			zstep = zstep / 1.2;
+
+			if (bh > 0.2)
 			{
-				Eigen::Vector4f smin, smax;
-				pcl::getMinMax3D(*slice, smin, smax);
-				params.x = (smax[0] + smin[0]) / 2;
-				params.y = (smax[1] + smin[1]) / 2;
-				params.h = max[2] - min[2];
-				params.c = sqrt(pow(max[0] - min[0], 2) + pow(max[1] - min[1], 2));
+
+				bh = bh - 0.2;
+				z = min[2] + bh;
 			}
-			cylinder cyl, bcyl, fcyl;
-			fitCylinder(slice, nnearest, false, true, cyl, 10);
-			fitCylinder(bslice, nnearest, false, false, bcyl, 10);
-			fitCylinder(fslice, nnearest, false, false, fcyl, 10);
-			float d = (cyl.rad + bcyl.rad + fcyl.rad) / 3 * 2;
-			float bdiff = fabs(cyl.rad - bcyl.rad) / cyl.rad;
-			float fdiff = fabs(cyl.rad - fcyl.rad) / cyl.rad;
-			float diff = (bdiff + fdiff) / 2;
-			if (cyl.ismodel == true && diff <= diffmax)
-			{
-				params.d = d;
-				stable = true;
-			}
+
+			std::cout << " Warning! reduced to zstep to :" << zstep << " bh reduced to :" << bh << std::endl;
 		}
+
+		// std::cout << "inzslice" << std::endl;
+
+		pcl::PointCloud<PointTreeseg>::Ptr slice(new pcl::PointCloud<PointTreeseg>);
+		pcl::PointCloud<PointTreeseg>::Ptr bslice(new pcl::PointCloud<PointTreeseg>);
+		pcl::PointCloud<PointTreeseg>::Ptr fslice(new pcl::PointCloud<PointTreeseg>);
+		spatial1DFilter(cloud, "z", z - zstep / 2, z + zstep / 2, slice);
+		spatial1DFilter(cloud, "z", z - zstep * 1.5, z - zstep / 2, bslice);
+		spatial1DFilter(cloud, "z", z + zstep / 2, z + zstep * 1.5, fslice);
+		if (i == 0)
+		{
+			Eigen::Vector4f smin, smax;
+			pcl::getMinMax3D(*slice, smin, smax);
+			params.x = (smax[0] + smin[0]) / 2;
+			params.y = (smax[1] + smin[1]) / 2;
+			params.h = max[2] - min[2];
+			params.c = sqrt(pow(max[0] - min[0], 2) + pow(max[1] - min[1], 2));
+		}
+		cylinder cyl, bcyl, fcyl;
+
+		fitCylinder(slice, nnearest, false, false, cyl, 10); // avoid diagnostics and slices get very thin
+		fitCylinder(bslice, nnearest, false, false, bcyl, 10);
+		fitCylinder(fslice, nnearest, false, false, fcyl, 10);
+		std::cout << " cyl.rad: " << cyl.rad << " " << cyl.ismodel << " bcyl.rad: " << bcyl.rad << "  fcyl.rad: " << fcyl.rad << std::endl;
+
+		float d = (cyl.rad + bcyl.rad + fcyl.rad) / 3 * 2;
+		float bdiff = fabs(cyl.rad - bcyl.rad) / cyl.rad;
+		float fdiff = fabs(cyl.rad - fcyl.rad) / cyl.rad;
+		float diff = (bdiff + fdiff) / 2;
+		if (cyl.ismodel == true && diff <= diffmax)
+		{
+			params.d = d;
+			stable = true;
+		}
+
 		z += 0.1;
 		i++;
 	}
@@ -855,7 +878,7 @@ int findPrincipalCloudIdx(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &cloud
 	{
 		Eigen::Vector4f cmin, cmax;
 		pcl::getMinMax3D(*clouds[i], cmin, cmax);
-		if (cmin[2] < min[2] + 2)
+		if (cmin[2] < min[2] + 1)
 		{
 			std::vector<int> in;
 			in.push_back(i);
@@ -952,7 +975,7 @@ void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::P
 	for (int a = 0; a < clusters.size(); a++)
 		*tmpcloud += *clusters[a];
 	std::vector<std::vector<float>> nndata = dNNz(tmpcloud, 50, 2); //nn distance,min around downsample dist and bigger in canopy
-	int idx = findPrincipalCloudIdx(clusters);	//get clusters in bottom 2 meters//return cluster idx with most points
+	int idx = findPrincipalCloudIdx(clusters);						//get clusters in bottom 2 meters//return cluster idx with most points
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> treeclusters;
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> outer;
 	treeclusters.push_back(clusters[idx]);

@@ -11,7 +11,12 @@ float maxheight(float dbh)
 	//m    -> 41.22 * dbh ^ 0.3406
 	//ci_u -> 42.30 * dbh ^ 0.3697
 	// float height = 42.30 * pow(dbh, 0.3697) + 5;
-	float height = 80 *dbh;
+	// float height = 80 *dbh;
+
+	dbh = dbh * 100.;
+	float dpow = pow(dbh, 0.73);
+	float height = (58.0 * dpow) / (21.8 + dpow) + 12;
+	// https://doi.org/10.5194/bg-16-847-2019
 
 	return height;
 }
@@ -21,7 +26,13 @@ float maxcrown(float dbh)
 	//m    -> 29.40 * dbh ^ 0.6524
 	//ci_u -> 30.36 * dbh ^ 0.6931
 	// float extent = 30.36 * pow(dbh, 0.6931) + 5;
-	float extent = 60 *dbh;
+	// float extent = 60 *dbh;
+
+	dbh = dbh * 100.;
+	float CA = 0.66 * pow(dbh, 1.34); //crown area
+	// https://doi.org/10.5194/bg-16-847-2019
+
+	float extent = 1.5 * (2.0 * sqrt(CA) / 1.772)+5; //sqrt pi // 1.5* safety factor
 
 	return extent;
 }
@@ -29,7 +40,9 @@ float maxcrown(float dbh)
 int main(int argc, char **argv)
 {
 
-	int start_argc = 1;
+	float diffmax = atof(argv[1]);//0.1
+
+	int start_argc = 2;
 
 	pcl::PCDReader reader;
 	pcl::PCDWriter writer;
@@ -54,7 +67,6 @@ int main(int argc, char **argv)
 			std::cout << "Estimating DBH: " << std::flush;
 			int nnearest = 90;
 			float zstep = 0.75;
-			float diffmax = 0.1;
 			treeparams params = getTreeParams(stem, nnearest, zstep, diffmax);
 			std::cout << params.d << std::endl;
 			//
@@ -83,23 +95,21 @@ int main(int argc, char **argv)
 			*volume += *stem;
 			*volume += *zslice;
 
-
 			cylinder cyl;
 
-			cyl.rad = c/2.0;// max crown
-			cyl.x = centroid[0];// x position
-			cyl.y = centroid[1];// y position
-			cyl.z =  min[2];// ground level
-			cyl.dx = 0;// vertical
-			cyl.dy = 0;// vertical
-			cyl.dz = 1;// vertical
+			cyl.rad = c / 2.0;	 // max crown
+			cyl.x = centroid[0]; // x position
+			cyl.y = centroid[1]; // y position
+			cyl.z = min[2];		 // ground level
+			cyl.dx = 0;			 // vertical
+			cyl.dy = 0;			 // vertical
+			cyl.dz = 1;			 // vertical
 
 			pcl::PointCloud<PointTreeseg>::Ptr volumecyl(new pcl::PointCloud<PointTreeseg>);
 
 			std::cout << "Start Spatial3DCylinderFilter : " << std::endl;
 			spatial3DCylinderFilter(volume, cyl, volumecyl);
 			std::cout << "Done Spatial3DCylinderFilter : " << std::endl;
-
 
 			std::stringstream ss;
 			ss << id[0] << ".volume." << id[1] << ".pcd";
