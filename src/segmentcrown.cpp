@@ -6,8 +6,8 @@
 
 #include <armadillo>
 
-
 #include <chrono>
+
 
 int main(int argc, char *argv[])
 {
@@ -61,9 +61,8 @@ int main(int argc, char *argv[])
 		writeClouds(regions, ss.str(), false);
 		std::cout << ss.str() << std::endl;
 		//
-		start_time = std::chrono::steady_clock::now();
 		int ngausians = 5;
-		if ((sepwoodleaf == true) && (regions.size()>=ngausians))
+		if ((sepwoodleaf == true) && (regions.size() >= ngausians))
 		{
 			std::cout << "Leaf stripping: " << std::endl;
 			//
@@ -121,10 +120,12 @@ int main(int argc, char *argv[])
 		writeClouds(regions, ss.str(), false);
 		std::cout << ss.str() << std::endl;
 		//
+		// start_time = std::chrono::steady_clock::now();
 
 		std::cout << "Building tree: " << std::flush;
 		pcl::PointCloud<PointTreeseg>::Ptr tree(new pcl::PointCloud<PointTreeseg>);
 		buildTree(regions, tree, id[1]);
+
 		ss.str("");
 		ss << id[0] << "_" << id[1] << ".pcd";
 		writer.write(ss.str(), *tree, true);

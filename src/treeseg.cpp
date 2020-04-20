@@ -334,18 +334,27 @@ std::vector<std::vector<float>> dNNz(pcl::PointCloud<PointTreeseg>::Ptr &cloud, 
 	std::vector<std::vector<float>> results;
 	Eigen::Vector4f min, max;
 	pcl::getMinMax3D(*cloud, min, max);
-	pcl::PointCloud<PointTreeseg>::Ptr tmp(new pcl::PointCloud<PointTreeseg>);
+
+	std::vector<float> zs;
 	for (float z = min[2]; z < max[2]; z += zstep)
 	{
-		spatial1DFilter(cloud, "z", z, z + zstep, tmp);
+		zs.push_back(z);
+	}
+
+#pragma omp taskloop shared(results)
+	for (int i = 0; i < zs.size(); i++)
+	{
+		pcl::PointCloud<PointTreeseg>::Ptr tmp(new pcl::PointCloud<PointTreeseg>);
+		spatial1DFilter(cloud, "z", zs[i], zs[i] + zstep, tmp);
 		if (tmp->points.size() > nnearest)
 		{
 			std::vector<float> nn = dNN(tmp, nnearest);
 			//float pos = z - min[2];
-			float pos = z + zstep;
+			float pos = zs[i] + zstep;
 			std::vector<float> r;
 			r.push_back(pos);
 			r.push_back(nn[0]);
+#pragma omp critical(dnnz)
 			results.push_back(r);
 		}
 		tmp->clear();
@@ -506,7 +515,7 @@ std::vector<float> fitCircle(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnea
 	pcl::SACSegmentation<PointTreeseg> seg;
 	seg.setOptimizeCoefficients(true);
 	seg.setMethodType(pcl::SAC_RANSAC);
-	seg.setMaxIterations(1000000);
+	seg.setMaxIterations(1000);
 	seg.setModelType(pcl::SACMODEL_CIRCLE2D);
 	seg.setDistanceThreshold(nndist);
 	seg.setInputCloud(cloud);
@@ -537,7 +546,7 @@ void fitCylinder(pcl::PointCloud<PointTreeseg>::Ptr &cloud, int nnearest, bool f
 		seg.setModelType(pcl::SACMODEL_CYLINDER);
 		seg.setNormalDistanceWeight(0.1);
 		seg.setMethodType(pcl::SAC_RANSAC);
-		seg.setMaxIterations(1000000);
+		seg.setMaxIterations(1000);
 		seg.setDistanceThreshold(nndist); //only return points withing a downsample disance of cylinder model
 		seg.setInputCloud(cloud);
 		seg.setInputNormals(normals);
@@ -771,14 +780,14 @@ void correctStem(pcl::PointCloud<PointTreeseg>::Ptr &stem, float nnearest, float
 		float stdev = std::sqrt(std::inner_product(diff.begin(), diff.end(), diff.begin(), 0.0) / zrad.size()); // std deviations of differences
 		float cov = stdev / mean;
 		float radchange = std::min(circle[2], mean) / std::max(circle[2], mean);
-		std::cout << z-min[2] << circle[2] << " " << mean << " " << cov << " " << radchange << std::endl;
+		std::cout << z - min[2] << circle[2] << " " << mean << " " << cov << " " << radchange << std::endl;
 		// std::cout << z << " " << z - zstep * 1.5 << " " << min[2] << std::endl;
 
 		if (cov > stepcovmax || radchange < radchangemin)
 		{
 			zstop = z - zstep * 1.5;
 			broken = true;
-			std::cout << " Broke: " << zstop-min[2] << std::endl;
+			std::cout << " Broke: " << zstop - min[2] << std::endl;
 
 			break;
 		}
@@ -897,8 +906,8 @@ float interpolatedNNZ(float x, std::vector<std::vector<float>> nndata, bool extr
 	std::vector<float> yData;
 	for (int m = 0; m < nndata.size(); m++)
 	{
-		xData.push_back(nndata[m][0]);
-		yData.push_back(nndata[m][1]);
+		xData.push_back(nndata[m][0]); //nn dist
+		yData.push_back(nndata[m][1]); // z level
 	}
 	int size = xData.size();
 	int i = 0;
@@ -906,7 +915,7 @@ float interpolatedNNZ(float x, std::vector<std::vector<float>> nndata, bool extr
 		i = size - 2;
 	else
 	{
-		while (x > xData[i + 1])
+		while (x > xData[i + 1]) // find index near input z
 			i++;
 	}
 	double xL = xData[i], yL = yData[i], xR = xData[i + 1], yR = yData[i + 1];
@@ -918,7 +927,7 @@ float interpolatedNNZ(float x, std::vector<std::vector<float>> nndata, bool extr
 			yL = yR;
 	}
 	double dydx = (yR - yL) / (xR - xL);
-	return yL + dydx * (x - xL);
+	return yL + dydx * (x - xL); // return interpolated NN distance at given z
 }
 
 void removeFarRegions(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters)
@@ -970,129 +979,133 @@ void removeFarRegions(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters)
 
 void buildTree(std::vector<pcl::PointCloud<PointTreeseg>::Ptr> &clusters, pcl::PointCloud<PointTreeseg>::Ptr &tree, std::string id)
 {
-
 	pcl::PointCloud<PointTreeseg>::Ptr tmpcloud(new pcl::PointCloud<PointTreeseg>);
 	for (int a = 0; a < clusters.size(); a++)
 		*tmpcloud += *clusters[a];
-	std::vector<std::vector<float>> nndata = dNNz(tmpcloud, 50, 2); //nn distance,min around downsample dist and bigger in canopy
-	int idx = findPrincipalCloudIdx(clusters);						//get clusters in bottom 2 meters//return cluster idx with most points
+	std::vector<std::vector<float>> nndata = dNNz(tmpcloud, 50, 2); //careful here //list of nn distances with the coresponding z heights at step size of 2
+	std::cout << id << " Done DNNz" << std::endl;
+
+	std::vector<float> clusterlengths;			   // all clusterlengths
+	std::vector<Eigen::Vector4f> clustervectors;   // all clustervectors
+	std::vector<Eigen::Vector4f> clustercentroids; // all cluster centroids
+
+	std::vector<Eigen::Vector4f> clustermins; // all cluster centroids
+	std::vector<Eigen::Vector4f> clustermaxs; // all cluster centroids
+
+	std::vector<int> clusteridxs; // indexs of unused clusters
+
+	for (int i = 0; i < clusters.size(); i++) // calculate all cluster variables first rather than in iterative steps below
+	{
+		Eigen::Vector4f clustercentroid;
+		Eigen::Matrix3f clustercovariancematrix;
+		Eigen::Matrix3f clustereigenvectors;
+		Eigen::Vector3f clustereigenvalues;
+		pcl::PointCloud<PointTreeseg>::Ptr clustertransformed(new pcl::PointCloud<PointTreeseg>);
+		Eigen::Vector4f clustermin, clustermax;
+		float clusterlength;
+		computePCA(clusters[i], clustercentroid, clustercovariancematrix, clustereigenvectors, clustereigenvalues);
+		Eigen::Vector3f clusterpoint(clustercentroid[0], clustercentroid[1], clustercentroid[2]);
+		Eigen::Vector3f clusterdirection(clustereigenvectors(0, 2), clustereigenvectors(1, 2), clustereigenvectors(2, 2));
+		Eigen::Affine3f clustertransform;
+		Eigen::Vector3f clusterworld(0, clusterdirection[2], -clusterdirection[1]);
+		clusterdirection.normalize();
+		pcl::getTransformationFromTwoUnitVectorsAndOrigin(clusterworld, clusterdirection, clusterpoint, clustertransform);
+		pcl::transformPointCloud(*clusters[i], *clustertransformed, clustertransform);
+		pcl::getMinMax3D(*clustertransformed, clustermin, clustermax);
+		clusterlength = clustermax[2] - clustermin[2];
+
+		pcl::getMinMax3D(*clusters[i], clustermin, clustermax); //get min max of untransformed
+
+		Eigen::Vector4f clustervector(clustereigenvectors(0, 2), clustereigenvectors(1, 2), clustereigenvectors(2, 2), 0);
+
+		clusterlengths.push_back(clusterlength);
+		clustervectors.push_back(clustervector);
+		clustercentroids.push_back(clustercentroid);
+		clustermins.push_back(clustermin);
+		clustermaxs.push_back(clustermax);
+
+		clusteridxs.push_back(i);
+	}
+
+	std::cout << id << " Done transforming clusters" << std::endl;
+
+	int idx = findPrincipalCloudIdx(clusters);
 	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> treeclusters;
-	std::vector<pcl::PointCloud<PointTreeseg>::Ptr> outer;
+	std::vector<int> outeridxs; // indexes of clusters in outer edge of tree
+
 	treeclusters.push_back(clusters[idx]);
-	outer.push_back(clusters[idx]);
-	clusters.erase(clusters.begin() + idx);
+	outeridxs.push_back(idx);
+	clusteridxs.erase(clusteridxs.begin() + idx); // remove primary cluster
+
 	int count = 0;
 	bool donesomething = true;
 
-	std::cout << " Numthreads " << omp_get_num_threads() << std::endl;
-
-	int allcounter = 0;
-
-	while (donesomething == true)
+#pragma ompsingle
 	{
-		std::vector<int> all_members;
-		std::vector<pcl::PointCloud<PointTreeseg>::Ptr> tmp;
-
-		std::cout << id << " outer size: " << outer.size() << std::endl;
-
-#pragma omp taskloop shared(all_members, allcounter)
-		for (int i = 0; i < outer.size(); i++)
+		while (donesomething == true)
 		{
+			std::vector<int> all_members;
+			std::vector<int> tmpidxs;
 
-			std::vector<int> member;
-			Eigen::Vector4f outercentroid;
-			Eigen::Matrix3f outercovariancematrix;
-			Eigen::Matrix3f outereigenvectors;
-			Eigen::Vector3f outereigenvalues;
-			pcl::PointCloud<PointTreeseg>::Ptr outertransformed(new pcl::PointCloud<PointTreeseg>);
-			Eigen::Vector4f outermin, outermax;
-			float outerlength;
-			// std::cout << i << " 2os" << std::flush;
-
-			computePCA(outer[i], outercentroid, outercovariancematrix, outereigenvectors, outereigenvalues); //get  primary direction
-			Eigen::Vector3f outerpoint(outercentroid[0], outercentroid[1], outercentroid[2]);
-			Eigen::Vector3f outerdirection(outereigenvectors(0, 2), outereigenvectors(1, 2), outereigenvectors(2, 2));
-			Eigen::Affine3f outertransform;
-			Eigen::Vector3f outerworld(0, outerdirection[2], -outerdirection[1]); //?
-
-			outerdirection.normalize();
-			pcl::getTransformationFromTwoUnitVectorsAndOrigin(outerworld, outerdirection, outerpoint, outertransform);
-			pcl::transformPointCloud(*outer[i], *outertransformed, outertransform);
-			pcl::getMinMax3D(*outertransformed, outermin, outermax);
-			outerlength = outermax[2] - outermin[2];
-
-#pragma omp taskloop shared(member, allcounter)
-			for (int j = 0; j < clusters.size(); j++)
+			std::cout << id << " outer size: " << outeridxs.size() << std::endl;
+#pragma omp taskloop shared(all_members) grainsize(16)
+			for (int i = 0; i < outeridxs.size(); i++)
 			{
-				float d;
-				Eigen::Vector4f clustercentroid;
-				if (outer[i]->points.size() >= clusters[j]->points.size())
-					d = minDistBetweenClouds(outer[i], clusters[j]);
-				else
-					d = minDistBetweenClouds(clusters[j], outer[i]);
-				pcl::compute3DCentroid(*clusters[j], clustercentroid);
-				float mind = interpolatedNNZ((clustercentroid[2] + outercentroid[2]) / 2, nndata, true);
-				if (d <= mind)
+				std::vector<int> member;
+#pragma omp taskloop shared(member) grainsize(4096)
+				for (int j = 0; j < clusteridxs.size(); j++)
 				{
-					Eigen::Matrix3f clustercovariancematrix;
-					Eigen::Matrix3f clustereigenvectors;
-					Eigen::Vector3f clustereigenvalues;
-					pcl::PointCloud<PointTreeseg>::Ptr clustertransformed(new pcl::PointCloud<PointTreeseg>);
-					Eigen::Vector4f clustermin, clustermax;
-					float clusterlength;
-					computePCA(clusters[j], clustercentroid, clustercovariancematrix, clustereigenvectors, clustereigenvalues);
-					Eigen::Vector3f clusterpoint(clustercentroid[0], clustercentroid[1], clustercentroid[2]);
-					Eigen::Vector3f clusterdirection(clustereigenvectors(0, 2), clustereigenvectors(1, 2), clustereigenvectors(2, 2));
-					Eigen::Affine3f clustertransform;
-					Eigen::Vector3f clusterworld(0, clusterdirection[2], -clusterdirection[1]);
-					clusterdirection.normalize();
-					pcl::getTransformationFromTwoUnitVectorsAndOrigin(clusterworld, clusterdirection, clusterpoint, clustertransform);
-					pcl::transformPointCloud(*clusters[j], *clustertransformed, clustertransform);
-					pcl::getMinMax3D(*clustertransformed, clustermin, clustermax);
-					clusterlength = clustermax[2] - clustermin[2];
-					Eigen::Vector4f outervector(outereigenvectors(0, 2), outereigenvectors(1, 2), outereigenvectors(2, 2), 0);
-					Eigen::Vector4f clustervector(clustereigenvectors(0, 2), clustereigenvectors(1, 2), clustereigenvectors(2, 2), 0);
-					float angle = pcl::getAngle3D(outervector, clustervector) * (180 / M_PI);
-					if (clusterlength < outerlength)
+					if (clusterlengths[clusteridxs[j]] < clusterlengths[outeridxs[i]]) // compare cluster length along first PCA
 					{
+						float mind = interpolatedNNZ((clustercentroids[clusteridxs[j]][2] + clustercentroids[outeridxs[i]][2]) / 2, nndata, true);
+
+						// perform an intersecting3dbbox check with an extra buffer distance of mind
+						if (clustermins[outeridxs[i]][0] <= (clustermaxs[clusteridxs[j]][0] + mind) && (clustermaxs[outeridxs[i]][0] + mind) >= clustermins[clusteridxs[j]][0] &&
+							clustermins[outeridxs[i]][1] <= (clustermaxs[clusteridxs[j]][1] + mind) && (clustermaxs[outeridxs[i]][1] + mind) >= clustermins[clusteridxs[j]][1] &&
+							clustermins[outeridxs[i]][2] <= (clustermaxs[clusteridxs[j]][2] + mind) && (clustermaxs[outeridxs[i]][2] + mind) >= clustermins[clusteridxs[j]][2])
+						{
+							// if bounding boxes are closer than mind then do min distance check
+							float d;
+							if (clusters[outeridxs[i]]->points.size() >= clusters[clusteridxs[j]]->points.size())
+								d = minDistBetweenClouds(clusters[outeridxs[i]], clusters[clusteridxs[j]]); // this takes the most time so we want to minimize this check by doing it last
+							else
+								d = minDistBetweenClouds(clusters[clusteridxs[j]], clusters[outeridxs[i]]);
+							if (d <= mind)
+
+							{
 #pragma omp critical(member)
-						member.push_back(j);
+								member.push_back(j);
+							}
+						}
 					}
 				}
-#pragma omp atomic
-				allcounter++;
-			}
-
 #pragma omp critical(member)
-			for (int k = 0; k < member.size(); k++)
-				all_members.push_back(member[k]);
-		}
-
-		std::cout << id << " done outer, Num calcs: " << allcounter << std::endl;
-
-		std::sort(all_members.begin(), all_members.end(), std::greater<int>());
-		all_members.erase(unique(all_members.begin(), all_members.end()), all_members.end());
-
-		for (int k = 0; k < all_members.size(); k++)
-		{
-			tmp.push_back(clusters[all_members[k]]);
-			clusters.erase(clusters.begin() + all_members[k]);
-		}
-
-		if (tmp.size() != 0)
-		{
-			outer.clear();
-			for (int m = 0; m < tmp.size(); m++)
-			{
-				treeclusters.push_back(tmp[m]);
-				outer.push_back(tmp[m]);
+				for (int k = 0; k < member.size(); k++)
+					all_members.push_back(member[k]);
 			}
-		}
-		else
-			donesomething = false;
-		count++;
-	} //while loop
+			std::sort(all_members.begin(), all_members.end(), std::greater<int>());
+			all_members.erase(unique(all_members.begin(), all_members.end()), all_members.end());
 
+			for (int k = 0; k < all_members.size(); k++)
+			{
+				tmpidxs.push_back(clusteridxs[all_members[k]]);			 // add clusters idxs refernce to by j
+				clusteridxs.erase(clusteridxs.begin() + all_members[k]); // remove clusters reference to by j form the valid idxs
+			}
+
+			if (tmpidxs.size() != 0)
+			{
+				outeridxs.clear();
+				for (int m = 0; m < tmpidxs.size(); m++)
+				{
+					treeclusters.push_back(clusters[tmpidxs[m]]); // add to tree
+					outeridxs.push_back(tmpidxs[m]);			  // get next set of outers
+				}
+			}
+			else
+				donesomething = false;
+			count++;
+		}
+	}
 	std::cout << id << " treeclusters: " << treeclusters.size() << std::endl;
 
 	for (int n = 0; n < treeclusters.size(); n++)
