@@ -10,6 +10,8 @@ int main (int argc, char *argv[])
 	float resolution = atof(argv[1]);
 	float zmin = atof(argv[2]);
 	float zmax = atof(argv[3]);
+	float grpercentile = atof(argv[4]);
+	std::vector<std::string> id = getFileID(argv[5]);
 
 	std::cout << "max num threads: " << omp_get_max_threads() << std::endl;
 
@@ -19,7 +21,6 @@ int main (int argc, char *argv[])
 	readTiles(argc,argv,plotcloud);
 	std::cout << "Finished reading plotcloud..." << std::endl;
 
-	std::vector<std::string> id = getFileID(argv[4]);
 	std::stringstream ss;
 	ss.str("");
 	ss << id[0] << ".slice.pcd";
@@ -27,7 +28,7 @@ int main (int argc, char *argv[])
 	pcl::PointCloud<PointTreeseg>::Ptr slice(new pcl::PointCloud<PointTreeseg>);
 	std::cout << "Running getDemAndSlice..." << std::endl;
 
-	dem = getDemAndSlice(plotcloud,resolution,zmin,zmax,slice);
+	dem = getDemAndSlice(plotcloud,resolution,zmin,zmax,slice,grpercentile);
 	// for(int j=0;j<dem.size();j++) std::cout << dem[j][0] << " " << dem[j][1] << " " << dem[j][2] << std::endl;
 	std::cout << "Writing slice..." << std::endl;
 	writer.write(ss.str(),*slice,true);

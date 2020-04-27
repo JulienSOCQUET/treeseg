@@ -362,7 +362,7 @@ std::vector<std::vector<float>> dNNz(pcl::PointCloud<PointTreeseg>::Ptr &cloud, 
 	return results;
 }
 
-std::vector<std::vector<float>> getDemAndSlice(pcl::PointCloud<PointTreeseg>::Ptr &plot, float resolution, float zmin, float zmax, pcl::PointCloud<PointTreeseg>::Ptr &slice)
+std::vector<std::vector<float>> getDemAndSlice(pcl::PointCloud<PointTreeseg>::Ptr &plot, float resolution, float zmin, float zmax, pcl::PointCloud<PointTreeseg>::Ptr &slice, float grpercentile)
 {
 	std::vector<std::vector<float>> dem;
 	Eigen::Vector4f plotmin, plotmax;
@@ -379,10 +379,6 @@ std::vector<std::vector<float>> getDemAndSlice(pcl::PointCloud<PointTreeseg>::Pt
 #pragma omp parallel for
 	for (int i = 0; i < xs.size(); i++)
 	{
-#pragma omp critical
-		{
-			std::cout << "Done: " << i << "  of: " << xs.size() << std::endl;
-		}
 
 		float x = xs[i];
 		pcl::PointCloud<PointTreeseg>::Ptr tmpcloud(new pcl::PointCloud<PointTreeseg>);
@@ -392,14 +388,18 @@ std::vector<std::vector<float>> getDemAndSlice(pcl::PointCloud<PointTreeseg>::Pt
 		{
 			pcl::PointCloud<PointTreeseg>::Ptr tile(new pcl::PointCloud<PointTreeseg>);
 			spatial1DFilter(tmpcloud, "y", y, y + resolution, tile);
-			Eigen::Vector4f tilemin, tilemax;
-			pcl::getMinMax3D(*tile, tilemin, tilemax);
+			float groundz = 0;
+			int targetcount = float(tile->points.size()) * grpercentile * 0.01;
+			groundz = find_ground_z(tile, targetcount); //stop around 10cm slice size
+			// std::cout << "got ground: " << groundz << std::endl;
+
 			std::vector<float> result;
 			result.push_back(x);
 			result.push_back(y);
-			result.push_back(tilemin[2]);
+			result.push_back(groundz);
+
 			pcl::PointCloud<PointTreeseg>::Ptr tileslice(new pcl::PointCloud<PointTreeseg>);
-			spatial1DFilter(tile, "z", tilemin[2] + zmin, tilemin[2] + zmax, tileslice);
+			spatial1DFilter(tile, "z", groundz + zmin, groundz + zmax, tileslice);
 
 #pragma omp critical
 			{
@@ -407,9 +407,40 @@ std::vector<std::vector<float>> getDemAndSlice(pcl::PointCloud<PointTreeseg>::Pt
 				*slice += *tileslice;
 			}
 		}
+#pragma omp critical
+		{
+			std::cout << "Done: " << i << "  of: " << xs.size() << std::endl;
+		}
 	}
 
 	return dem;
+}
+
+float find_ground_z(pcl::PointCloud<PointTreeseg>::Ptr &slice, int targetcount) // find z height with most points in slice
+{
+	float finishsize = 0.1;
+
+	Eigen::Vector4f slicemin, slicemax;
+	pcl::getMinMax3D(*slice, slicemin, slicemax);
+	float stepsize = (slicemax[2] - slicemin[2]) / 4; // slice into quarters
+	float preslicecounter = 0;
+	for (float z = slicemin[2]; z < slicemax[2]; z += stepsize)
+	{
+		pcl::PointCloud<PointTreeseg>::Ptr subslice(new pcl::PointCloud<PointTreeseg>);
+		spatial1DFilter(slice, "z", z, z + stepsize, subslice);
+		if ((subslice->points.size() + preslicecounter) >= targetcount) // if we pass percentile limit // cut up finer
+		{
+			if (stepsize < finishsize)
+			{
+				return z;
+			}
+			//else
+			targetcount = targetcount - preslicecounter; // get remain points to find
+			return find_ground_z(subslice, finishsize);
+		}
+		preslicecounter += subslice->points.size(); // keep track of points in lower slices
+	}
+	return slicemin[2]; //incase something is wrong, default to min tile
 }
 
 void computePCA(pcl::PointCloud<PointTreeseg>::Ptr &cloud, Eigen::Vector4f &centroid, Eigen::Matrix3f &covariancematrix, Eigen::Matrix3f &eigenvectors, Eigen::Vector3f &eigenvalues)
