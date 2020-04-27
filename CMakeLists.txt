@@ -86,5 +86,8 @@ target_link_libraries(leafsep treeseg ${PCL_LIBRARIES} ${ARMADILLO_LIBRARIES})
 add_executable(segmentcrown ${CMAKE_SOURCE_DIR}/src/segmentcrown.cpp)
 target_link_libraries(segmentcrown treeseg leafsep ${PCL_LIBRARIES})
 
+add_executable(buildtrees ${CMAKE_SOURCE_DIR}/src/buildtrees.cpp)
+target_link_libraries(buildtrees treeseg ${PCL_LIBRARIES})
+
 add_executable(sepwoodleaf ${CMAKE_SOURCE_DIR}/src/sepwoodleaf.cpp)
 target_link_libraries(sepwoodleaf treeseg leafsep ${PCL_LIBRARIES})

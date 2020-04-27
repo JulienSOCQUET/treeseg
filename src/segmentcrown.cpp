@@ -8,7 +8,6 @@
 
 #include <chrono>
 
-
 int main(int argc, char *argv[])
 {
 
@@ -39,9 +38,9 @@ int main(int argc, char *argv[])
 		std::cout << "Euclidean clustering: " << std::flush;
 		std::vector<std::vector<float>> nndata = dNNz(volume, 50, 2);
 		float nnmax = 0;
-		for (int i = 0; i < nndata.size(); i++)
-			if (nndata[i][1] > nnmax)
-				nnmax = nndata[i][1];
+		for (int k = 0; k < nndata.size(); k++)
+			if (nndata[k][1] > nnmax)
+				nnmax = nndata[k][1];
 		std::cout << nnmax << ", " << std::flush;
 		std::vector<pcl::PointCloud<PointTreeseg>::Ptr> clusters;
 		euclideanClustering(volume, nnmax, 3, clusters);
@@ -50,20 +49,28 @@ int main(int argc, char *argv[])
 		writeClouds(clusters, ss.str(), false);
 		std::cout << ss.str() << std::endl;
 		//
-		std::cout << "Region-based segmentation: " << std::flush;
 		std::vector<pcl::PointCloud<PointTreeseg>::Ptr> regions;
 		int idx = findPrincipalCloudIdx(clusters);
 		int nnearest = 50;
 		int nmin = 3;
-		regionSegmentation(clusters[idx], nnearest, nmin, smoothness, regions);
+
 		ss.str("");
-		ss << id[0] << ".ec.rg." << id[1] << ".pcd";
-		writeClouds(regions, ss.str(), false);
+		ss << id[0] << ".ec.prim." << id[1] << ".pcd";
+		writer.write(ss.str(),*clusters[idx], true);
+
 		std::cout << ss.str() << std::endl;
-		//
+		
 		int ngausians = 5;
 		if ((sepwoodleaf == true) && (regions.size() >= ngausians))
 		{
+			std::cout << "Region-based segmentation: " << std::flush;
+			regionSegmentation(clusters[idx], nnearest, nmin, smoothness, regions);
+			ss.str("");
+			ss << id[0] << ".ec.rg." << id[1] << ".pcd";
+			writeClouds(regions, ss.str(), false);
+			std::cout << ss.str() << std::endl;
+			//
+
 			std::cout << "Leaf stripping: " << std::endl;
 			//
 			std::cout << " Region-wise, " << std::flush;
@@ -100,54 +107,13 @@ int main(int argc, char *argv[])
 			*wood += *csepclouds[0] + *psepclouds[0];
 			writer.write(ss.str(), *wood, true);
 			std::cout << ss.str() << std::endl;
-			//
-			std::cout << "Re-segmenting regions: " << std::flush;
-			regions.clear();
-			regionSegmentation(wood, nnearest, nmin, smoothness + 2.5, regions);
-			ss.str("");
-			ss << id[0] << ".ec.rg.rlw.plw.w.rg." << id[1] << ".pcd";
-			writeClouds(regions, ss.str(), false);
-			std::cout << ss.str() << std::endl;
-		}
-		//
-		std::cout << "Optimising regions: " << std::flush;
-		removeFarRegions(regions);
-		ss.str("");
-		if (sepwoodleaf == true)
-			ss << id[0] << ".ec.rg.rlw.plw.w.rg.o." << id[1] << ".pcd";
-		else
-			ss << id[0] << ".ec.rg.o." << id[1] << ".pcd";
-		writeClouds(regions, ss.str(), false);
-		std::cout << ss.str() << std::endl;
-		//
-		// start_time = std::chrono::steady_clock::now();
-
-		std::cout << "Building tree: " << std::flush;
-		pcl::PointCloud<PointTreeseg>::Ptr tree(new pcl::PointCloud<PointTreeseg>);
-		buildTree(regions, tree, id[1]);
-
-		ss.str("");
-		ss << id[0] << "_" << id[1] << ".pcd";
-		writer.write(ss.str(), *tree, true);
-		std::cout << ss.str() << std::endl;
-
-#pragma omp critical(addtrees)
-		{
-			trees.push_back(tree);
 		}
 	}
-	// }
-
-	std::vector<std::string> id = getFileID(argv[start_argc]);
-	ss.str("");
-	ss << id[0] << ".all_trees.pcd";
-	writeClouds(trees, ss.str(), false);
 
 	auto end_time = std::chrono::steady_clock::now();
 
 	std::cout << "Elapsed time in seconds : "
 			  << std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count()
 			  << " sec" << std::endl;
-
 	return 0;
 }
